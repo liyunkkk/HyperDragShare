@@ -47,7 +47,7 @@ jobs:
           SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
         run: |
           chmod +x gradlew
-          ./gradlew testDebugUnitTest lintDebug assembleRelease
+          ./gradlew testDebugUnitTest lintDebug assembleRelease --stacktrace
 
       - name: Locate signed release APK
         id: release_apk
