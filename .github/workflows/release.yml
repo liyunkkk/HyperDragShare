@@ -23,7 +23,9 @@ jobs:
 
       - name: Set up Android SDK platform 37
         run: |
-          sdkmanager "platforms;android-37.0" "build-tools;35.0.0" "ndk;26.1.10909125" "cmake;3.22.1" "platform-tools"
+          SDKMANAGER="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
+          "$SDKMANAGER" "platforms;android-37.0" "build-tools;35.0.0" "ndk;26.1.10909125" "cmake;3.22.1" "platform-tools" > /dev/null
           if [ ! -d "$ANDROID_SDK_ROOT/platforms/android-37" ]; then
             ln -sfn "$ANDROID_SDK_ROOT/platforms/android-37.0" "$ANDROID_SDK_ROOT/platforms/android-37"
           fi
