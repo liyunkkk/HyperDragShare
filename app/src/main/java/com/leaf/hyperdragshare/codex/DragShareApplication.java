@@ -9,6 +9,7 @@ public final class DragShareApplication extends Application {
         super.onCreate();
         DragShareLog.configure(DragShareSettings.readLocal(this));
         DragShareDiagnostics.captureRuntimeOnce(this, "module application created", null);
+        AccessibilityKeepAlive.sync(this);
         TextSegmenter.preloadIfEnabled(this);
     }
 }

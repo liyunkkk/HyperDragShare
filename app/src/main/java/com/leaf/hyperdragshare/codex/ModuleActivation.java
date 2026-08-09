@@ -183,6 +183,11 @@ final class ModuleActivation {
         }
     }
 
+    /** Writes a Secure setting as the shell user; only meaningful when root is available. */
+    static boolean putSecureSetting(String name, String value) {
+        return runRootCommand("settings put secure " + name + " '" + value + "'");
+    }
+
     static boolean matchesCurrentBuild(long reportedVersion) {
         return reportedVersion == BuildConfig.VERSION_CODE;
     }

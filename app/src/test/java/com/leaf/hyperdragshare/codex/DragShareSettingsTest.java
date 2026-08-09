@@ -84,6 +84,7 @@ public final class DragShareSettingsTest {
                 settings.accessibilityRecognitionSensitivityPercent);
         assertEquals(DragShareSettings.LOG_LEVEL_INFO, settings.logLevel);
         assertEquals(DragShareSettings.LOG_DESTINATION_SYSTEM, settings.logDestination);
+        assertFalse(settings.forceKeepAccessibilityEnabled);
         assertEquals(650, settings.resolveAccessibilityLongPressTimeoutMillis(650));
         assertEquals(1f, settings.accessibilityTouchSlopMultiplier(), 0f);
         assertFalse(settings.isAccessibilityRecognitionEnabledForOrientation(
@@ -119,7 +120,8 @@ public final class DragShareSettingsTest {
                 DragShareSettings.DEFAULT_MODERN_BLUR_RADIUS_DP,
                 DragShareSettings.DEFAULT_MODERN_GLASS_OPACITY_PERCENT,
                 DragShareSettings.LOG_LEVEL_DEBUG,
-                DragShareSettings.LOG_DESTINATION_FILE);
+                DragShareSettings.LOG_DESTINATION_FILE,
+                false);
 
         DragShareSettings roundTripped = DragShareSettings.fromBundle(settings.toBundle());
         assertEquals(DragShareSettings.LOG_LEVEL_DEBUG, roundTripped.logLevel);
@@ -150,7 +152,8 @@ public final class DragShareSettingsTest {
                 DragShareSettings.DEFAULT_MODERN_BLUR_RADIUS_DP,
                 DragShareSettings.DEFAULT_MODERN_GLASS_OPACITY_PERCENT,
                 99,
-                99);
+                99,
+                false);
         assertEquals(DragShareSettings.LOG_LEVEL_INFO, invalid.logLevel);
         assertEquals(DragShareSettings.LOG_DESTINATION_SYSTEM, invalid.logDestination);
     }
@@ -562,6 +565,58 @@ public final class DragShareSettingsTest {
 
         Bundle oldBundle = new Bundle();
         assertTrue(DragShareSettings.fromBundle(oldBundle).isPortalCaptureMode());
+    }
+
+    @Test
+    public void forceKeepAccessibilitySettingRoundTripsThroughProviderBundle() {
+        DragShareSettings settings = new DragShareSettings(
+                DragShareSettings.COLOR_LIGHT,
+                DragShareSettings.STYLE_SIMPLE,
+                DragShareSettings.DEFAULT_EDGE_TRIGGER_DP,
+                DragShareSettings.DEFAULT_SCROLL_SPEED_DP_PER_SECOND,
+                false,
+                true,
+                true,
+                DragShareSettings.DEFAULT_SIMPLE_MENU_POSITION,
+                DragShareSettings.DEFAULT_SIMPLE_MENU_OPACITY_PERCENT,
+                DragShareSettings.DEFAULT_SIMPLE_MENU_CORNER_RADIUS_DP,
+                DragShareSettings.DEFAULT_SIMPLE_MENU_EDGE_DISTANCE_DP,
+                DragShareSettings.DEFAULT_ICON_OPACITY_PERCENT,
+                true,
+                new LinkedHashSet<>(),
+                Arrays.asList(),
+                DragShareSettings.CONTENT_CAPTURE_ACCESSIBILITY,
+                false,
+                new LinkedHashSet<>(),
+                DragShareSettings.DEFAULT_ACCESSIBILITY_LONG_PRESS_TIMEOUT_MILLIS,
+                DragShareSettings.DEFAULT_ACCESSIBILITY_RECOGNITION_SENSITIVITY_PERCENT,
+                true,
+                DragShareSettings.DEFAULT_MODERN_BLUR_RADIUS_DP,
+                DragShareSettings.DEFAULT_MODERN_GLASS_OPACITY_PERCENT,
+                DragShareSettings.LOG_LEVEL_INFO,
+                DragShareSettings.LOG_DESTINATION_SYSTEM,
+                true);
+
+        assertTrue(settings.forceKeepAccessibilityEnabled);
+        assertTrue(DragShareSettings.fromBundle(settings.toBundle()).forceKeepAccessibilityEnabled);
+        assertFalse(DragShareSettings.fromBundle(new Bundle()).forceKeepAccessibilityEnabled);
+
+        AccessibilityKeepAlive.MergeResult merged = AccessibilityKeepAlive.mergeEnabledServices(
+                null,
+                "com.leaf.hyperdragshare.codex/.DragShareAccessibilityService");
+        assertEquals(
+                "com.leaf.hyperdragshare.codex/.DragShareAccessibilityService",
+                merged.value);
+        merged = AccessibilityKeepAlive.mergeEnabledServices(
+                "com.a/.S",
+                "com.leaf.hyperdragshare.codex/.DragShareAccessibilityService");
+        assertEquals(
+                "com.a/.S:com.leaf.hyperdragshare.codex/.DragShareAccessibilityService",
+                merged.value);
+        merged = AccessibilityKeepAlive.mergeEnabledServices(
+                "com.a/.S:com.leaf.hyperdragshare.codex/.DragShareAccessibilityService",
+                "com.leaf.hyperdragshare.codex/.DragShareAccessibilityService");
+        assertFalse(merged.changed);
     }
 
     @Test

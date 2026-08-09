@@ -92,6 +92,7 @@ public final class DragShareSettings {
     public static final boolean DEFAULT_PRELOAD_TEXT_SEGMENTER = true;
     public static final boolean DEFAULT_CLOSE_MENU_WHEN_POINTER_LEAVES = true;
     public static final boolean DEFAULT_ACCESSIBILITY_LANDSCAPE_RECOGNITION_ENABLED = false;
+    public static final boolean DEFAULT_FORCE_KEEP_ACCESSIBILITY_ENABLED = false;
     public static final int MIN_ACCESSIBILITY_LONG_PRESS_TIMEOUT_MILLIS = 250;
     /** Uses the platform long-press delay until the user moves the setting slider. */
     public static final int DEFAULT_ACCESSIBILITY_LONG_PRESS_TIMEOUT_MILLIS = 0;
@@ -143,6 +144,8 @@ public final class DragShareSettings {
             "accessibility_long_press_timeout_millis";
     private static final String KEY_ACCESSIBILITY_RECOGNITION_SENSITIVITY_PERCENT =
             "accessibility_recognition_sensitivity_percent";
+    private static final String KEY_FORCE_KEEP_ACCESSIBILITY_ENABLED =
+            "force_keep_accessibility_enabled";
     private static final String KEY_LOG_LEVEL = "log_level";
     private static final String KEY_LOG_DESTINATION = "log_destination";
 
@@ -169,6 +172,7 @@ public final class DragShareSettings {
     public final Set<String> accessibilityBlacklistedPackages;
     public final int accessibilityLongPressTimeoutMillis;
     public final int accessibilityRecognitionSensitivityPercent;
+    public final boolean forceKeepAccessibilityEnabled;
     public final int logLevel;
     public final int logDestination;
 
@@ -596,7 +600,8 @@ public final class DragShareSettings {
                 modernBlurRadiusDp,
                 modernGlassOpacityPercent,
                 DEFAULT_LOG_LEVEL,
-                DEFAULT_LOG_DESTINATION);
+                DEFAULT_LOG_DESTINATION,
+                DEFAULT_FORCE_KEEP_ACCESSIBILITY_ENABLED);
     }
 
     /** Full constructor including diagnostic logging configuration. */
@@ -625,7 +630,8 @@ public final class DragShareSettings {
             int modernBlurRadiusDp,
             int modernGlassOpacityPercent,
             int logLevel,
-            int logDestination) {
+            int logDestination,
+            boolean forceKeepAccessibilityEnabled) {
         this.colorMode = colorMode == COLOR_DARK ? COLOR_DARK : COLOR_LIGHT;
         this.contentCaptureMode = normalizeContentCaptureMode(contentCaptureMode);
         this.uiStyle = uiStyle == STYLE_SIMPLE
@@ -685,6 +691,7 @@ public final class DragShareSettings {
                 MAX_ACCESSIBILITY_RECOGNITION_SENSITIVITY_PERCENT);
         this.logLevel = normalizeLogLevel(logLevel);
         this.logDestination = normalizeLogDestination(logDestination);
+        this.forceKeepAccessibilityEnabled = forceKeepAccessibilityEnabled;
     }
 
     public static DragShareSettings defaults() {
@@ -779,7 +786,10 @@ public final class DragShareSettings {
                         KEY_MODERN_GLASS_OPACITY,
                         DEFAULT_MODERN_GLASS_OPACITY_PERCENT),
                 preferences.getInt(KEY_LOG_LEVEL, DEFAULT_LOG_LEVEL),
-                preferences.getInt(KEY_LOG_DESTINATION, DEFAULT_LOG_DESTINATION));
+                preferences.getInt(KEY_LOG_DESTINATION, DEFAULT_LOG_DESTINATION),
+                preferences.getBoolean(
+                        KEY_FORCE_KEEP_ACCESSIBILITY_ENABLED,
+                        DEFAULT_FORCE_KEEP_ACCESSIBILITY_ENABLED));
     }
 
     public void saveLocal(Context context) {
@@ -825,6 +835,7 @@ public final class DragShareSettings {
                         accessibilityRecognitionSensitivityPercent)
                 .putInt(KEY_LOG_LEVEL, logLevel)
                 .putInt(KEY_LOG_DESTINATION, logDestination)
+                .putBoolean(KEY_FORCE_KEEP_ACCESSIBILITY_ENABLED, forceKeepAccessibilityEnabled)
                 .apply();
         DragShareLog.configure(this);
         DragShareLog.i("DragShare/Settings", "logging configured level=" + logLevel
@@ -890,6 +901,7 @@ public final class DragShareSettings {
                 accessibilityRecognitionSensitivityPercent);
         result.putInt(KEY_LOG_LEVEL, logLevel);
         result.putInt(KEY_LOG_DESTINATION, logDestination);
+        result.putBoolean(KEY_FORCE_KEEP_ACCESSIBILITY_ENABLED, forceKeepAccessibilityEnabled);
         return result;
     }
 
@@ -968,7 +980,10 @@ public final class DragShareSettings {
                         KEY_MODERN_GLASS_OPACITY,
                         DEFAULT_MODERN_GLASS_OPACITY_PERCENT),
                 bundle.getInt(KEY_LOG_LEVEL, DEFAULT_LOG_LEVEL),
-                bundle.getInt(KEY_LOG_DESTINATION, DEFAULT_LOG_DESTINATION));
+                bundle.getInt(KEY_LOG_DESTINATION, DEFAULT_LOG_DESTINATION),
+                bundle.getBoolean(
+                        KEY_FORCE_KEEP_ACCESSIBILITY_ENABLED,
+                        DEFAULT_FORCE_KEEP_ACCESSIBILITY_ENABLED));
     }
 
     public boolean isSharingEnabled(boolean image) {

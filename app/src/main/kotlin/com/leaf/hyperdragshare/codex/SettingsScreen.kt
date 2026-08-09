@@ -148,6 +148,7 @@ fun DragShareSettingsApp(context: Context) {
         if (next.preloadTextSegmenter && !settings.preloadTextSegmenter) {
             TextSegmenter.preload(context)
         }
+        AccessibilityKeepAlive.sync(context)
         settings = next
     }
     val currentSettings = rememberUpdatedState(settings)
@@ -377,6 +378,19 @@ private fun MainPage(
                         },
                     )
                     if (settings.isAccessibilityCaptureMode) {
+                        SwitchPreference(
+                            title = "强制保持无障碍开启",
+                            summary = "服务被关闭后通过 Root 自动重新启用",
+                            checked = settings.forceKeepAccessibilityEnabled,
+                            onCheckedChange = { checked ->
+                                persist(
+                                    copySettings(
+                                        settings,
+                                        forceKeepAccessibilityEnabled = checked,
+                                    ),
+                                )
+                            },
+                        )
                         SwitchPreference(
                             title = "横屏启用识别",
                             summary = "横屏时也允许无障碍读取长按内容",
@@ -1951,6 +1965,7 @@ private fun copySettings(
         current.accessibilityRecognitionSensitivityPercent,
     logLevel: Int = current.logLevel,
     logDestination: Int = current.logDestination,
+    forceKeepAccessibilityEnabled: Boolean = current.forceKeepAccessibilityEnabled,
 ): DragShareSettings = DragShareSettings(
     colorMode,
     uiStyle,
@@ -1977,6 +1992,7 @@ private fun copySettings(
     modernGlassOpacityPercent,
     logLevel,
     logDestination,
+    forceKeepAccessibilityEnabled,
 )
 
 @Suppress("DEPRECATION")

@@ -1,6 +1,6 @@
 # HyperDragShare 完整实现说明
 
-本文记录 HyperDragShare `1.7.48`（`versionCode 72`）的当前完整实现、关键兼容性选择和已验证
+本文记录 HyperDragShare `1.7.49`（`versionCode 73`）的当前完整实现、关键兼容性选择和已验证
 设备参数。实现目标是：传送门识别长按文字或图片后，在手指附近立即显示预览；同一根手指
 无需抬起即可继续拖动；简洁和现代样式可按设置出现在上、下、左、右或近手侧，流光样式在底部显示横向分享菜单，环形样式可从左右边缘展开半圆
 菜单；停留在可滚动热区时自动滚动；松手落在目标上时直接分享。
@@ -500,6 +500,7 @@ Binder transaction code、触摸设备节点或分辨率。root 调用只接受�
 | `accessibility_blacklisted_packages` | 无障碍模式用户选择的应用包名集合 | 空集合 |
 | `accessibility_long_press_timeout_millis` | 无障碍长按超时；`0` 代表沿用系统默认 | `0` |
 | `accessibility_recognition_sensitivity_percent` | 无障碍长按期间移动容差倍率 | `100` |
+| `force_keep_accessibility_enabled` | 服务被关闭后是否通过 Root 自动重新启用 | `false` |
 | `log_level` | `0` 禁用、`1` 信息、`2` 调试 | `1` |
 | `log_destination` | `0` 系统日志、`1` root 保护的文件 | `0` |
 
@@ -677,8 +678,12 @@ grant。URI 和文件实际存在，但 Provider 因调用 UID 不匹配拒绝�
 `DragShareAccessibilityService` 不声明独立进程，并且只在当前模式为“无障碍”、屏幕可交互且
 设备未锁定时启动运行时。横屏默认保持 Root 输入运行时但拒绝创建长按识别，只有开启
 `accessibility_landscape_recognition_enabled` 才允许横屏识别。服务连接状态和 Root 输入就绪状态由 `AccessibilityRuntimeStatus` 提供
-给首页状态卡；选择无障碍且服务未启用时，首页只显示 Miuix 对话框并跳转系统无障碍设置，绝不
-写入 `Settings.Secure` 或静默启用服务。
+给首页状态卡；选择无障碍且服务未启用时，首页只显示 Miuix 对话框并跳转系统无障碍设置。模块
+默认不写入 `Settings.Secure`、不静默启用服务；只有用户在无障碍设置页显式开启
+`force_keep_accessibility_enabled` 后，`AccessibilityKeepAlive` 才以 Root 身份写入
+`enabled_accessibility_services`（保留其他已启用服务并追加本服务）和 `accessibility_enabled`，
+并通过 `AlarmManager.setAndAllowWhileIdle` 每 60 秒重查一次、在系统或用户关闭服务后重新启用。
+该开关只影响无障碍模式，重启后由 `BOOT_COMPLETED` 接收器恢复定时检查。
 
 无障碍事件只记录窗口变化代号和前台包名。物理手指由 Root evdev 驱动：DOWN 后使用系统
 `ViewConfiguration` 的长按超时和 touch slop；超时后仅执行一次窗口/节点读取；MOVE 在截图

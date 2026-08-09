@@ -9,6 +9,7 @@
     <uses-permission
         android:name="android.permission.QUERY_ALL_PACKAGES"
         tools:ignore="QueryAllPackagesPermission" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <queries>
         <intent>
@@ -73,6 +74,17 @@
                 android:name="android.accessibilityservice"
                 android:resource="@xml/drag_share_accessibility_service" />
         </service>
+
+        <receiver
+            android:name=".AccessibilityKeepAlive$KeepAliveReceiver"
+            android:exported="false" />
+        <receiver
+            android:name=".AccessibilityKeepAlive$BootReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
 
         <!--
           Image staging and grant management accept calls only from this app or
