@@ -40,14 +40,18 @@ jobs:
           echo "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/hyperdragshare-release.keystore"
           echo "SIGNING_KEYSTORE_PATH=$RUNNER_TEMP/hyperdragshare-release.keystore" >> "$GITHUB_ENV"
 
-      - name: Verify and build APK
+      - name: Run unit tests and lint
+        run: |
+          chmod +x gradlew
+          ./gradlew testDebugUnitTest lintDebug --stacktrace
+
+      - name: Assemble release APK
         env:
           SIGNING_KEYSTORE_PASSWORD: ${{ secrets.SIGNING_KEYSTORE_PASSWORD }}
           SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
           SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
         run: |
-          chmod +x gradlew
-          ./gradlew testDebugUnitTest lintDebug assembleRelease --stacktrace
+          ./gradlew assembleRelease --stacktrace
 
       - name: Locate signed release APK
         id: release_apk
