@@ -9,69 +9,69 @@
 ## 工程基线
 
 - 工程类型：Android LSPosed 模块，Java/Kotlin 17，minSdk 33，targetSdk 34，compileSdk 37。
-- 当前版本：`1.7.49`，`versionCode 73`。
-- 已验证宿主：传送门 `4.2.1`，包名 `com.miui.contentextension`。
+- 当前版本：`1.8.0`，`versionCode 74`。
+- LSPosed 入口为 `com.leaf.hyperdragshare.codex.MainHook`；默认作用域为系统进程
+  `android`，仅在 system_server 内安装无障碍保护门闩 Hook。
+- 已删除传送门（`com.miui.contentextension`）捕获运行方案；内容获取只保留无障碍模式。
 - LSPosed API：82，入口为 `com.leaf.hyperdragshare.codex.MainHook`。
-- 可靠的同手势跟手依赖 root 读取 Linux evdev；MIUI 输入监听仅作回退。
+- 可靠的同手势跟手依赖 root 读取 Linux evdev；这是唯一输入源。
 - 当前设备记录：`Xiaomi_Touch_Input_0`、`/dev/input/event7`、原始范围
   `121999 x 265599`、屏幕 `1220 x 2656`。代码必须继续动态探测，不能硬编码这些值。
 
 ## 不可破坏的约束
 
-1. LSPosed 作用域只能包含 `com.miui.contentextension`。不要加入
-   `com.miui.contentcatcher`（Application Extension Service），也不要在部署脚本中强停它；
-   已知部分系统上强停它会连带结束其他应用。
-2. root 输入源一旦 `isReady()`，它就是一次拖拽的唯一权威输入源。不得把 MIUI
-   `MotionEvent`、传送门控制码和 root 事件混在一起决定结束时机。
-3. root 拖拽期间，真实的 `ABS_MT_TRACKING_ID=-1` / `BTN_TOUCH=0` 才对应最终
-   `ACTION_UP`。传送门的 `cancelTask`、控制码 `257/258` 以及重复的
-   `startPick*Task` 不能提前结束活动拖拽。`cancelTask` 和 `257` 不能永久吞掉：应暂存
-   原调用并在真实 UP 时回放，以复位传送门的 `sIsTaskFinished` 等内部状态；`258` 才是
-   应持续抑制的移动取消信号。
+1. LSPosed 作用域只能包含 `android`（system_server），用于
+   `AccessibilityServiceEnforcer` 保活门闩。不要加入任何普通应用包名，不要重新引入
+   `com.miui.contentextension`，不要强停 `com.miui.contentcatcher`。
+2. root 输入源一旦 `isReady()`，它就是一次拖拽的唯一权威输入源。没有其他输入回退通道，
+   不要引入 `MotionEvent` 监听或宿主控制码与 root 事件混用。
+3. 触发的根因是系统进程内的 `Settings` 变更：无需看门狗 App 写 enabled 残影。所有开关
+   状态只由 system_server 的 `ContentObserver` 观察后统一写回。
 4. 预览窗和菜单必须保持 `FLAG_NOT_TOUCHABLE`。它们通过
    `WindowManager.updateViewLayout()` 被动跟随坐标，不接管当前手势。原页面仍可能滚动是
    当前旁路观察方案的预期行为。
 5. 不要把图片 URI 描述成“只靠临时 URI grant 才能读取”。当前 Provider 会给目标包显式
    grant，但 `openFile()` 故意不再额外调用 `checkUriPermission()`，以兼容会丢失 grant
    信息的系统分享代理和应用内二次转发。读取能力同时依赖不可枚举的 UUID URI；
-   `stage/grant/revoke` RPC 仍只允许模块自身或传送门 UID。
+   `stage/grant/revoke` RPC 仍只允许模块自身 UID。
 6. 图片分享 Intent 的 `data`、`EXTRA_STREAM`、`ClipData`、MIME type 和
    `FLAG_GRANT_READ_URI_PERMISSION` 是兼容性组合，不能只保留其中一项。
-7. 不要随意修改传送门私有类名、方法名或控制码。它们绑定传送门 4.2.1，变更前需要反编译
-   新版本并完成实机日志验证。
-8. 设置通过模块 UID 的 SharedPreferences 保存，由 `ShareImageProvider.call(get_settings)`
-   受限返回给传送门；不要改成 world-readable 文件。边缘触发值以 dp 保存并在运行时限制
-   为不超过屏幕半宽，速度以 dp/s 保存。
-9. “拖拽时阻止背景滑动”只在 root 输入源已经送入活动会话后尝试调用隐藏输入 API；不要在
-   MIUI 回退通道上直接消费 `ACTION_CANCEL`，否则会让悬浮窗提前结束。所有取消/服务销毁路径
-   都必须释放 `InputMonitor`（若 ROM 走 monitor 回退）。
-10. 近手方向的物理映射是“左高右低显示在右边，右高左低显示在左边”。菜单第一次展开后
-    必须锁定该侧并注销传感器，直到本次手势结束；不要在菜单暂时收起后重新选边。
-11. “手指移开时关闭分享菜单”是四种拖拽样式的公共行为。简洁/现代/流光离开菜单与触发带时移除
+7. 设置通过模块 UID 的 SharedPreferences 保存，由 `DragShareSettings` 的本地持久化
+   写入；不要改成 world-readable 文件。边缘触发值以 dp 保存并在运行时限制为不超过屏幕
+   半宽，速度以 dp/s 保存。
+8. “拖拽时阻止背景滑动”只在 root 输入源已经送入活动会话后尝试调用隐藏输入 API。所有
+   取消/服务销毁路径都必须释放 `InputMonitor`（若 ROM 走 monitor 回退）。
+9. 近手方向的物理映射是“左高右低显示在右边，右高左低显示在左边”。菜单第一次展开后
+   必须锁定该侧并注销传感器，直到本次手势结束；不要在菜单暂时收起后重新选边。
+10. “手指移开时关闭分享菜单”是四种拖拽样式的公共行为。简洁/现代/流光离开菜单与触发带时移除
     线性菜单，环形离开展开面板区域时折叠；同一手势重新进入触发区后都应允许再次展开。
-12. 首页激活状态必须按当前来源解释：传送门模式按“无 Root → 当前版本未注入传送门 →
-   传送门 Root 权限不可用 → 已激活”，
-    无障碍模式按“无 Root → 服务未启用 → 服务/Root 输入连接中 → 已激活”。传送门 Hook 必须通过
-    `ModuleActivation.reportInjected()` 上报其编译时 `BuildConfig.VERSION_CODE`；不要把普通的
-    `get_settings` 调用当作注入证明，否则 APK 更新后仍运行旧代码的传送门进程会被误报为已激活。
-13. 内容获取方式默认是传送门。无障碍模式只由 `DragShareAccessibilityService` 在模块进程中
-    工作，仍依赖 Root evdev，并且绝不能扩大 LSPosed 作用域或静默启用无障碍服务。公共运行时
-    不得导入 Xposed API；只允许 `PortalHooks`、`PortalContentCaptureSource` 和
-    `MiuiMotionSource` 使用传送门私有/Xposed 接口。
-14. 无障碍节点树只允许在一次长按超时后读取。不得在 `onAccessibilityEvent()` 中持续遍历、
+11. 首页激活状态按无障碍来源解释：“无 Root → 服务未启用 → 服务/Root 输入连接中 →
+    已激活”。激活状态由 `SettingsScreen` 读取 `AccessibilityRuntimeStatus` 现实状态得出，
+    不要伪造注入证明；模块包含的 system_server 保活门闩不影响首页激活逻辑。
+12. 内容获取方式只有无障碍，由 `DragShareAccessibilityService` 在模块进程中工作，依赖
+    Root evdev。公共运行时不得导入 Xposed API；只允许 `MainHook` 和
+    `AccessibilityProtectionHooks` 使用 Xposed 接口，且它们只能在 system_server
+    作用域内安装保活门闩。
+13. 无障碍节点树只允许在一次长按超时后读取。不得在 `onAccessibilityEvent()` 中持续遍历、
     截图或记录文字；密码节点、锁屏和无障碍覆盖层必须被忽略，图片只截取已选择的节点区域。
-15. 未经用户在当前轮明确授权，自动化代理不得自行启动、切换或操控任何设备/桌面应用（包括
+14. 未经用户在当前轮明确授权，自动化代理不得自行启动、切换或操控任何设备/桌面应用（包括
     `adb shell am start`、`monkey`、`input` 和 GUI 自动化），也不得自行执行设备或本地截图
     （包括 `screencap`、`adb exec-out screencap`、`PixelCopy`）。可读取用户主动提供的截图；
     此约束不改变模块运行时为现代悬浮 View 使用原生局部背景模糊的实现。
 
 ## 代码地图
 
-- `MainHook.java`：限制注入包名。
-- `PortalHooks.java`：安装传送门 Hook、管理生命周期、输入源仲裁和宿主取消信号。
+- `MainHook.java`：限制注入包名 `android`，安装 system_server 保活门闩。
+- `AccessibilityProtectionHooks.java`：hook `SystemServer.startOtherServices` 安装保活门闩。
+- `AccessibilityServiceEnforcer.java`：system_server 侧事件驱动保活（ContentObserver 观察
+  `Settings`，repair/backoff/limiter，签名钉扎）。
+- `AccessibilityProtectionProtocol.java`、`AccessibilityProtectionClient.java`：状态广播/恢复
+  RPC 协议与客户端。
+- `AccessibilityServiceMerge.java`：纯合并工具（enabled 服务串、签名身份、控制请求校验）。
+- `AccessibilityHealthProvider.java`：SYSTEM_UID-only 的健康检查 ContentProvider。
+- `AccessibilityKeepAlive.java`：模块侧开关与 system_server 后端同步的客户端 Facade。
 - `RootTouchSource.java`、`EvdevTouchParser.java`：发现触摸设备、解析 evdev 多点触控帧，稳定生成 DOWN/MOVE/UP/CANCEL。
-- `MiuiMotionSource.java`：MIUI 系统监听回退。
-- `CapturedContent.java`、`OverlayWindowPolicy.java`：来源无关的文字/图片模型和传送门/无障碍窗口类型。
+- `CapturedContent.java`、`OverlayWindowPolicy.java`：来源无关的文字/图片模型和无障碍窗口类型。
 - `DragShareController.java`：拖拽会话、悬浮预览、方向菜单、边缘滚动、近手传感器和落点选择；不依赖 Xposed。
 - `PortalGlowView.java`：流光样式的全屏不可触摸光效、下拉进度和托盘展开绘制。
 - `CircleMenuOverlayView.java`、`CircleMenuGeometry.java`：按 JADX MCP 圆菜单类重建的左右贴边半圆样式。
@@ -79,11 +79,10 @@
 - `DragShareSettings.java`：设置默认值、范围校验、本地持久化和 Provider 配置 RPC。
 - `BackgroundTouchBlocker.java`、`FrameworkBinderTransactionResolver.java`：可选地通过系统手势监视器取消原前台窗口的触摸流；直接 API 被拒绝或被隐藏 API 策略屏蔽时，从当前 ROM 的 framework DEX 动态解析输入 Binder 事务号并以 root 回退，失败时旁路观察。
 - `SettingsScreen.kt`：Miuix 设置页（内容开关、目标可见性、批量操作、拖拽排序、外观和触摸参数）。
-- `ModuleActivation.java`：Root 探测、当前版本传送门注入握手和首页激活状态来源。
+- `ModuleActivation.java`：Root 探测（`su`）。
 - `DragAndDrop.kt`：参考 XiaomiHelper 的 LazyColumn 实时换位、边缘自动滚动和回弹状态。
-- `PortalContentCaptureSource.java`：唯一读取传送门私有字段和初始触点的适配层。
 - `DragShareAccessibilityService.java`、`AccessibilityContentCaptureSource.java`：无障碍生命周期、长按协调和来源隔离。
-- `AccessibilityKeepAlive.java`：可选的强制保持无障碍开启看门狗，通过 Root 恢复服务并在重启后重新定时。
+- `AccessibilityRuntimeStatus.java`：无障碍服务/连接/Root 输入就绪状态，供首页激活卡读取。
 - `LongPressGestureDetector.java`、`AccessibilityNodeClassifier.java`、`AccessibilityCandidateSelector.java`：可单测的长按、节点分类和命中优先级。
 - `AccessibilityScreenshotter.java`、`RootScreenshotter.java`、`ScreenshotRectMapper.java`：安全的一次性区域截图与 API 28/29 回退。
 - `ShareTargetRepository.java`：查询可处理对应 MIME 的导出 Activity，并克隆/着色内置目标的旧矢量图标。
@@ -105,7 +104,7 @@
 .\gradlew.bat testDebugUnitTest lintDebug assembleDebug
 ```
 
-当前应有 76 个单元测试通过，APK 输出到
+当前应有 72 个单元测试通过，APK 输出到
 `app\build\outputs\apk\debug\app-debug.apk`。交付新的可安装行为时同步递增
 `versionCode` 和 `versionName`；纯文档修改不要求增版。
 

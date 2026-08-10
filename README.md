@@ -1,29 +1,29 @@
 # HyperDragShare
 
-HyperDragShare 是一个 Android LSPosed 模块，为 HyperOS 传送门的文字和图片长按提供同一手势内的跟手预览与分享菜单。
+HyperDragShare 是一个 Android LSPosed 模块，通过无障碍服务识别文字和图片长按，再以 Root evdev 输入在同一手势内提供跟手预览与分享菜单。
 
 ## 功能
 
-- 使用 Root evdev 输入，在传送门识别长按后继续跟随当前手指。
+- 使用 Root evdev 输入，在无障碍长按识别后继续跟随当前手指。
 - 支持文字分享、图片分享、保存图片到本地和文本分词。
-- 提供简洁、流光和环形三种可配置的分享菜单，以及深浅色外观、目标排序和隐藏设置。
-- 可选无障碍内容获取模式；该模式仍需要 Root 输入，且不会扩大 LSPosed 作用域。
+- 提供简洁、流光、环形和现代四种可配置的分享菜单，以及深浅色外观、目标排序和隐藏设置。
+- system_server 保活门闩：服务被关闭后由系统进程事件驱动自动重新启用（可选）。
 - 支持可关闭的系统日志或 root 保护的诊断文件导出；调试模式会记录输入节点与运行环境信息。
 
 ## 要求
 
 - Android 13 或更高版本。
-- 已安装并启用 LSPosed；模块作用域仅选择 `com.miui.contentextension`。
+- 已安装并启用 LSPosed；模块作用域仅选择系统进程 `android`。
+- 已启用 HyperDragShare 无障碍服务。
 - Root 权限用于读取 Linux evdev，从而可靠地跟随同一次拖拽。
-- 已验证传送门版本：`4.2.1`。
 
 ## 安装
 
 1. 从 [Releases](https://github.com/Leaf-lsgtky/HyperDragShare/releases) 下载 APK 并安装。
-2. 在 LSPosed 中启用 HyperDragShare，作用域只勾选传送门。
-3. 重新启动传送门作用域进程后，打开 HyperDragShare 完成设置。
+2. 在 LSPosed 中启用 HyperDragShare，作用域只勾选系统进程。
+3. 在系统设置的无障碍页中开启 HyperDragShare，然后打开模块完成设置。
 
-不要将 `com.miui.contentcatcher` 加入 LSPosed 作用域，也不要强行停止它。
+不要将 `com.miui.contentcatcher` 或任何普通应用加入 LSPosed 作用域，也不要强行停止它。
 
 ## 构建
 
@@ -37,7 +37,7 @@ HyperDragShare 是一个 Android LSPosed 模块，为 HyperOS 传送门的文字
 
 ## 发布
 
-向 GitHub 推送形如 `v1.7.12` 的 tag 后，GitHub Actions 会执行测试、Lint，并通过 R8 构建已签名的 Release APK，随后自动创建对应的 GitHub Release 与 APK 附件。
+向 GitHub 推送形如 `v1.8.0` 的 tag 后，GitHub Actions 会执行测试、Lint，并通过 R8 构建已签名的 Release APK，随后自动创建对应的 GitHub Release 与 APK 附件。
 
 ## 许可证
 

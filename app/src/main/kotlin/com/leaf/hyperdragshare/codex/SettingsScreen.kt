@@ -120,8 +120,6 @@ import java.util.Locale
 import kotlin.math.roundToInt
 
 private const val ORDER_LIST_INDEX_OFFSET = 1
-private const val PORTAL_ACTIVATION_CHECK_ATTEMPTS = 45
-private const val PORTAL_ACTIVATION_CHECK_INTERVAL_MS = 100L
 
 private sealed interface SettingsRoute : NavKey {
     data object Main : SettingsRoute
@@ -236,7 +234,6 @@ private fun MainPage(
     onOpenAbout: () -> Unit,
     persist: (DragShareSettings) -> Unit,
 ) {
-    var showAccessibilityDialog by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
     val exportLogLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("text/plain"),
@@ -315,12 +312,7 @@ private fun MainPage(
                 ActivationStatusCard(
                     context = context,
                     dark = settings.colorMode == DragShareSettings.COLOR_DARK,
-                    contentCaptureMode = settings.contentCaptureMode,
-                    onOpenAccessibilitySettings = if (settings.isAccessibilityCaptureMode) {
-                        { openAccessibilitySettings(context) }
-                    } else {
-                        null
-                    },
+                    onOpenAccessibilitySettings = { openAccessibilitySettings(context) },
                 )
             }
             item(key = "content-title") {
@@ -328,127 +320,81 @@ private fun MainPage(
             }
             item(key = "content-preferences") {
                 Card(modifier = Modifier.padding(horizontal = 12.dp).padding(bottom = 12.dp)) {
-                    OverlayDropdownPreference(
-                        title = "内容获取方式",
-                        summary = if (settings.isPortalCaptureMode) {
-                            "由传送门识别长按内容"
-                        } else {
-                            "由无障碍读取文字并截取图片区域"
-                        },
-                        items = listOf("传送门", "无障碍"),
-                        selectedIndex = settings.contentCaptureMode.coerceIn(0, 1),
-                        onSelectedIndexChange = { selected ->
-                            val mode = if (selected == DragShareSettings.CONTENT_CAPTURE_ACCESSIBILITY) {
-                                DragShareSettings.CONTENT_CAPTURE_ACCESSIBILITY
-                            } else {
-                                DragShareSettings.CONTENT_CAPTURE_PORTAL
-                            }
-                            persist(copySettings(settings, contentCaptureMode = mode))
-                            if (mode == DragShareSettings.CONTENT_CAPTURE_ACCESSIBILITY
-                                && !AccessibilityRuntimeStatus.isServiceEnabled(context)
-                            ) {
-                                showAccessibilityDialog = true
-                            }
-                        },
-                    )
                     ArrowPreference(
                         title = "应用黑名单",
-                        summary = if (settings.isPortalCaptureMode) {
-                            "使用传送门的系统黑名单设置"
-                        } else {
-                            "无障碍识别时跳过指定应用"
-                        },
-                        onClick = {
-                            if (settings.isPortalCaptureMode) {
-                                coroutineScope.launch {
-                                    val started = withContext(Dispatchers.IO) {
-                                        ModuleActivation.openPortalBlacklistSettings()
-                                    }
-                                    if (!started) {
-                                        Toast.makeText(
-                                            context,
-                                            "无法打开传送门应用黑名单",
-                                            Toast.LENGTH_SHORT,
-                                        ).show()
-                                    }
-                                }
-                            } else {
-                                onOpenBlacklist()
-                            }
+                        summary = "无障碍识别时跳过指定应用",
+                        onClick = onOpenBlacklist,
+                    )
+                    SwitchPreference(
+                        title = "强制保持无障碍开启",
+                        summary = "服务被关闭后由 system_server 自动重新启用",
+                        checked = settings.forceKeepAccessibilityEnabled,
+                        onCheckedChange = { checked ->
+                            persist(
+                                copySettings(
+                                    settings,
+                                    forceKeepAccessibilityEnabled = checked,
+                                ),
+                            )
                         },
                     )
-                    if (settings.isAccessibilityCaptureMode) {
-                        SwitchPreference(
-                            title = "强制保持无障碍开启",
-                            summary = "服务被关闭后通过 Root 自动重新启用",
-                            checked = settings.forceKeepAccessibilityEnabled,
-                            onCheckedChange = { checked ->
-                                persist(
-                                    copySettings(
-                                        settings,
-                                        forceKeepAccessibilityEnabled = checked,
-                                    ),
-                                )
-                            },
-                        )
-                        SwitchPreference(
-                            title = "横屏启用识别",
-                            summary = "横屏时也允许无障碍读取长按内容",
-                            checked = settings.accessibilityLandscapeRecognitionEnabled,
-                            onCheckedChange = { checked ->
-                                persist(
-                                    copySettings(
-                                        settings,
-                                        accessibilityLandscapeRecognitionEnabled = checked,
-                                    ),
-                                )
-                            },
-                        )
-                        SliderPreference(
-                            title = "长按时间",
-                            summary = "按住超过设定时间后开始识别",
-                            value = accessibilityLongPressTimeout,
-                            valueText = "${accessibilityLongPressTimeout.roundToInt()} ms",
-                            valueRange = DragShareSettings.MIN_ACCESSIBILITY_LONG_PRESS_TIMEOUT_MILLIS.toFloat()
-                                ..DragShareSettings.MAX_ACCESSIBILITY_LONG_PRESS_TIMEOUT_MILLIS.toFloat(),
-                            steps = 18,
-                            showKeyPoints = true,
-                            keyPoints = listOf(250f, 400f, 500f, 600f, 800f, 1000f, 1200f),
-                            onValueChange = { accessibilityLongPressTimeout = it },
-                            onValueChangeFinished = {
-                                persist(
-                                    copySettings(
-                                        settings,
-                                        accessibilityLongPressTimeoutMillis =
-                                            accessibilityLongPressTimeout.roundToInt(),
-                                    ),
-                                )
-                            },
-                        )
-                        SliderPreference(
-                            title = "识别灵敏度",
-                            summary = "提高后允许长按期间有更大的手指位移",
-                            value = accessibilitySensitivity,
-                            valueText = "${accessibilitySensitivity.roundToInt()}%",
-                            valueRange = DragShareSettings
-                                .MIN_ACCESSIBILITY_RECOGNITION_SENSITIVITY_PERCENT.toFloat()
-                                ..DragShareSettings
-                                    .MAX_ACCESSIBILITY_RECOGNITION_SENSITIVITY_PERCENT.toFloat(),
-                            steps = 5,
-                            showKeyPoints = true,
-                            keyPoints = listOf(50f, 75f, 100f, 125f, 150f, 175f, 200f),
-                            onValueChange = { accessibilitySensitivity = it },
-                            onValueChangeFinished = {
-                                persist(
-                                    copySettings(
-                                        settings,
-                                        accessibilityRecognitionSensitivityPercent =
-                                            accessibilitySensitivity.roundToInt(),
-                                    ),
-                                )
-                            },
-                        )
-                    }
+                    SwitchPreference(
+                        title = "横屏启用识别",
+                        summary = "横屏时也允许无障碍读取长按内容",
+                        checked = settings.accessibilityLandscapeRecognitionEnabled,
+                        onCheckedChange = { checked ->
+                            persist(
+                                copySettings(
+                                    settings,
+                                    accessibilityLandscapeRecognitionEnabled = checked,
+                                ),
+                            )
+                        },
+                    )
+                    SliderPreference(
+                        title = "长按时间",
+                        summary = "按住超过设定时间后开始识别",
+                        value = accessibilityLongPressTimeout,
+                        valueText = "${accessibilityLongPressTimeout.roundToInt()} ms",
+                        valueRange = DragShareSettings.MIN_ACCESSIBILITY_LONG_PRESS_TIMEOUT_MILLIS.toFloat()
+                            ..DragShareSettings.MAX_ACCESSIBILITY_LONG_PRESS_TIMEOUT_MILLIS.toFloat(),
+                        steps = 18,
+                        showKeyPoints = true,
+                        keyPoints = listOf(250f, 400f, 500f, 600f, 800f, 1000f, 1200f),
+                        onValueChange = { accessibilityLongPressTimeout = it },
+                        onValueChangeFinished = {
+                            persist(
+                                copySettings(
+                                    settings,
+                                    accessibilityLongPressTimeoutMillis =
+                                        accessibilityLongPressTimeout.roundToInt(),
+                                ),
+                            )
+                        },
+                    )
+                    SliderPreference(
+                        title = "识别灵敏度",
+                        summary = "提高后允许长按期间有更大的手指位移",
+                        value = accessibilitySensitivity,
+                        valueText = "${accessibilitySensitivity.roundToInt()}%",
+                        valueRange = DragShareSettings
+                            .MIN_ACCESSIBILITY_RECOGNITION_SENSITIVITY_PERCENT.toFloat()
+                            ..DragShareSettings
+                                .MAX_ACCESSIBILITY_RECOGNITION_SENSITIVITY_PERCENT.toFloat(),
+                        steps = 5,
+                        showKeyPoints = true,
+                        keyPoints = listOf(50f, 75f, 100f, 125f, 150f, 175f, 200f),
+                        onValueChange = { accessibilitySensitivity = it },
+                        onValueChangeFinished = {
+                            persist(
+                                copySettings(
+                                    settings,
+                                    accessibilityRecognitionSensitivityPercent =
+                                        accessibilitySensitivity.roundToInt(),
+                                ),
+                            )
+                        },
+                    )
                     SwitchPreference(
                         title = "启用文字分享",
                         summary = "长按文字时显示分享菜单",
@@ -851,47 +797,19 @@ private fun MainPage(
 
             item(key = "footer") {
                 Text(
-                    text = "作用域：传送门 · 版本 ${BuildConfig.VERSION_NAME}",
+                    text = "作用域：system_server · 版本 ${BuildConfig.VERSION_NAME}",
                     modifier = Modifier.padding(horizontal = 28.dp, vertical = 20.dp),
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     fontSize = 13.sp,
                 )
             }
         }
-        OverlayDialog(
-            show = showAccessibilityDialog,
-            title = "开启无障碍服务",
-            summary = "无障碍内容获取需要开启“HyperDragShare”服务。",
-            onDismissRequest = { showAccessibilityDialog = false },
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                TextButton(
-                    text = "暂不",
-                    onClick = { showAccessibilityDialog = false },
-                    modifier = Modifier.weight(1f),
-                )
-                TextButton(
-                    text = "打开设置",
-                    onClick = {
-                        showAccessibilityDialog = false
-                        openAccessibilitySettings(context)
-                    },
-                    modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.textButtonColorsPrimary(),
-                )
-            }
         }
-    }
 }
 
 private enum class ActivationUiState {
     Checking,
     NoRoot,
-    NotInjected,
-    PortalRootUnavailable,
     AccessibilityDisabled,
     AccessibilityConnecting,
     Active,
@@ -908,7 +826,6 @@ private fun openAccessibilitySettings(context: Context) {
 private fun ActivationStatusCard(
     context: Context,
     dark: Boolean,
-    contentCaptureMode: Int,
     onOpenAccessibilitySettings: (() -> Unit)?,
 ) {
     var refreshGeneration by remember { mutableIntStateOf(0) }
@@ -929,7 +846,7 @@ private fun ActivationStatusCard(
         }
     }
 
-    LaunchedEffect(refreshGeneration, contentCaptureMode) {
+    LaunchedEffect(refreshGeneration) {
         state = ActivationUiState.Checking
         val rootAvailable = withContext(Dispatchers.IO) {
             ModuleActivation.hasRootAccess()
@@ -938,38 +855,14 @@ private fun ActivationStatusCard(
             state = ActivationUiState.NoRoot
             return@LaunchedEffect
         }
-        if (contentCaptureMode == DragShareSettings.CONTENT_CAPTURE_ACCESSIBILITY) {
-            state = when {
-                !AccessibilityRuntimeStatus.isServiceEnabled(context) -> {
-                    ActivationUiState.AccessibilityDisabled
-                }
-                !AccessibilityRuntimeStatus.isConnected()
-                        || !AccessibilityRuntimeStatus.isRootInputReady() -> {
-                    ActivationUiState.AccessibilityConnecting
-                }
-                else -> ActivationUiState.Active
-            }
-            return@LaunchedEffect
-        }
-        var injected = ModuleActivation.isCurrentBuildInjected(context)
-        var portalRootGranted = ModuleActivation.isCurrentBuildPortalRootGranted(context)
-        if (!injected || !portalRootGranted) {
-            withContext(Dispatchers.IO) {
-                ModuleActivation.requestPortalInjectionHandshake()
-            }
-            repeat(PORTAL_ACTIVATION_CHECK_ATTEMPTS) {
-                injected = ModuleActivation.isCurrentBuildInjected(context)
-                portalRootGranted = ModuleActivation.isCurrentBuildPortalRootGranted(context)
-                if (injected && portalRootGranted) {
-                    state = ActivationUiState.Active
-                    return@LaunchedEffect
-                }
-                delay(PORTAL_ACTIVATION_CHECK_INTERVAL_MS)
-            }
-        }
         state = when {
-            !injected -> ActivationUiState.NotInjected
-            !portalRootGranted -> ActivationUiState.PortalRootUnavailable
+            !AccessibilityRuntimeStatus.isServiceEnabled(context) -> {
+                ActivationUiState.AccessibilityDisabled
+            }
+            !AccessibilityRuntimeStatus.isConnected()
+                    || !AccessibilityRuntimeStatus.isRootInputReady() -> {
+                ActivationUiState.AccessibilityConnecting
+            }
             else -> ActivationUiState.Active
         }
     }
@@ -985,8 +878,6 @@ private fun ActivationStatusCard(
     val title = when (state) {
         ActivationUiState.Checking -> "正在检测"
         ActivationUiState.NoRoot -> "未获取 Root 权限"
-        ActivationUiState.NotInjected -> "未注入到传送门"
-        ActivationUiState.PortalRootUnavailable -> "传送门未获取 Root 权限"
         ActivationUiState.AccessibilityDisabled -> "无障碍服务未启用"
         ActivationUiState.AccessibilityConnecting -> "无障碍服务正在连接"
         ActivationUiState.Active -> "已激活"
@@ -994,28 +885,16 @@ private fun ActivationStatusCard(
     val summary = when (state) {
         ActivationUiState.Checking -> "正在检查运行环境"
         ActivationUiState.NoRoot -> "Root 输入通道当前不可用"
-        ActivationUiState.NotInjected -> "当前版本尚未在传送门进程中加载\n如果传送门未启动，该提示为正常现象"
-        ActivationUiState.PortalRootUnavailable -> "传送门进程未通过 Root 权限检测\n如果传送门未启动，该提示为正常现象"
         ActivationUiState.AccessibilityDisabled -> "请在系统设置中手动开启“HyperDragShare”服务"
         ActivationUiState.AccessibilityConnecting -> "正在等待无障碍服务和 Root 输入就绪"
-        ActivationUiState.Active -> if (contentCaptureMode == DragShareSettings.CONTENT_CAPTURE_ACCESSIBILITY) {
-            "无障碍服务与 Root 输入均已就绪"
-        } else {
-            "传送门 4.2.1 已加载当前模块"
-        }
+        ActivationUiState.Active -> "无障碍服务与 Root 输入均已就绪"
     }
     val activationMethod = when (state) {
         ActivationUiState.Checking -> "正在检测"
         ActivationUiState.NoRoot -> "ROOT"
-        ActivationUiState.NotInjected -> "LSPosed"
-        ActivationUiState.PortalRootUnavailable -> "传送门 ROOT"
         ActivationUiState.AccessibilityDisabled -> "无障碍"
         ActivationUiState.AccessibilityConnecting -> "ROOT · 无障碍"
-        ActivationUiState.Active -> if (contentCaptureMode == DragShareSettings.CONTENT_CAPTURE_ACCESSIBILITY) {
-            "ROOT · 无障碍"
-        } else {
-            "ROOT · LSPosed"
-        }
+        ActivationUiState.Active -> "ROOT · 无障碍"
     }
     val textContentColor = MiuixTheme.colorScheme.onSurface
     val descTextColor = textContentColor.copy(alpha = 0.8f)

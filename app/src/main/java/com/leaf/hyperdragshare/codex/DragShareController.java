@@ -141,9 +141,6 @@ final class DragShareController {
 
     private volatile boolean active;
     private volatile boolean destroyed;
-    // startPick*Task can create Taplus' full-screen float view before this controller reaches
-    // the main thread. Keep its window suppressed during that small handoff.
-    private volatile boolean pendingPortalHostFloatWindowSuppression;
     private volatile float lastObservedX = -1;
     private volatile float lastObservedY = -1;
     private volatile long lastObservedEventTime;
@@ -252,28 +249,18 @@ final class DragShareController {
     private DragShareSettings settings = DragShareSettings.defaults();
     private OverlayColors palette = OverlayColors.light();
 
-    DragShareController(Context context) {
-        this(context, OverlayWindowPolicy.portal());
-    }
-
     DragShareController(Context context, OverlayWindowPolicy windowPolicy) {
         this.context = context;
         this.windowManager = (WindowManager) context.getSystemService(Context.WINDOW_SERVICE);
         this.backgroundTouchBlocker = new BackgroundTouchBlocker(context);
-        this.windowPolicy = windowPolicy == null ? OverlayWindowPolicy.portal() : windowPolicy;
+        this.windowPolicy = windowPolicy == null
+                ? OverlayWindowPolicy.accessibility()
+                : windowPolicy;
         this.dragShareToast = new DragShareToast(context, this.windowPolicy);
     }
 
     boolean isActive() {
         return active;
-    }
-
-    void reservePortalHostFloatWindowSuppression() {
-        pendingPortalHostFloatWindowSuppression = true;
-    }
-
-    boolean shouldSuppressPortalHostFloatWindow() {
-        return active || pendingPortalHostFloatWindowSuppression;
     }
 
     void show(
@@ -386,7 +373,6 @@ final class DragShareController {
 
     void destroy() {
         destroyed = true;
-        pendingPortalHostFloatWindowSuppression = false;
         runOnMain(() -> {
             active = false;
             if (session != null) {
@@ -405,14 +391,12 @@ final class DragShareController {
             float requestedInitialY,
             DragShareSettings loadedSettings) {
         if (destroyed) {
-            pendingPortalHostFloatWindowSuppression = false;
             return;
         }
         if (active) {
-            pendingPortalHostFloatWindowSuppression = false;
             if (!duplicateStartLogged) {
                 duplicateStartLogged = true;
-                log("duplicate Taplus start ignored during active drag");
+                log("duplicate start ignored during active drag");
             }
             return;
         }
@@ -437,7 +421,6 @@ final class DragShareController {
         removeGestureViews();
 
         if (!settings.isSharingEnabled(payload.isImage())) {
-            pendingPortalHostFloatWindowSuppression = false;
             log("sharing disabled kind=" + payload.kind);
             return;
         }
@@ -457,11 +440,9 @@ final class DragShareController {
                 windowManager.addView(previewView, previewParams);
             }
             active = true;
-            pendingPortalHostFloatWindowSuppression = false;
             registerNearHandSensorIfNeeded();
             traceAccessibility("overlay added kind=" + payload.kind);
         } catch (Throwable error) {
-            pendingPortalHostFloatWindowSuppression = false;
             log("unable to add preview overlay", error);
             traceAccessibility("overlay add failed=" + error.getClass().getSimpleName()
                     + ":" + String.valueOf(error.getMessage()));

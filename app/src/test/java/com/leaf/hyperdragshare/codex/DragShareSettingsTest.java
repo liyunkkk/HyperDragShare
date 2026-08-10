@@ -25,7 +25,7 @@ public final class DragShareSettingsTest {
 
         assertEquals(DragShareSettings.COLOR_LIGHT, settings.colorMode);
         assertEquals(
-                DragShareSettings.CONTENT_CAPTURE_PORTAL,
+                DragShareSettings.CONTENT_CAPTURE_ACCESSIBILITY,
                 settings.contentCaptureMode);
         assertEquals(DragShareSettings.STYLE_MODERN, settings.uiStyle);
         assertEquals(DragShareSettings.STYLE_MODERN, DragShareSettings.DEFAULT_UI_STYLE);
@@ -111,7 +111,7 @@ public final class DragShareSettingsTest {
                 true,
                 new LinkedHashSet<>(),
                 Arrays.asList(),
-                DragShareSettings.CONTENT_CAPTURE_PORTAL,
+                DragShareSettings.CONTENT_CAPTURE_ACCESSIBILITY,
                 false,
                 new LinkedHashSet<>(),
                 DragShareSettings.DEFAULT_ACCESSIBILITY_LONG_PRESS_TIMEOUT_MILLIS,
@@ -143,7 +143,7 @@ public final class DragShareSettingsTest {
                 true,
                 new LinkedHashSet<>(),
                 Arrays.asList(),
-                DragShareSettings.CONTENT_CAPTURE_PORTAL,
+                DragShareSettings.CONTENT_CAPTURE_ACCESSIBILITY,
                 false,
                 new LinkedHashSet<>(),
                 DragShareSettings.DEFAULT_ACCESSIBILITY_LONG_PRESS_TIMEOUT_MILLIS,
@@ -221,7 +221,7 @@ public final class DragShareSettingsTest {
                 true,
                 new LinkedHashSet<>(),
                 Arrays.asList(),
-                DragShareSettings.CONTENT_CAPTURE_PORTAL,
+                DragShareSettings.CONTENT_CAPTURE_ACCESSIBILITY,
                 false,
                 new LinkedHashSet<>(),
                 DragShareSettings.DEFAULT_ACCESSIBILITY_LONG_PRESS_TIMEOUT_MILLIS,
@@ -293,7 +293,7 @@ public final class DragShareSettingsTest {
     }
 
     @Test
-    public void portalSettingsRetainSimpleMenuBackgroundOpacity() {
+    public void accessibilitySettingsRetainSimpleMenuBackgroundOpacity() {
         DragShareSettings settings = new DragShareSettings(
                 DragShareSettings.COLOR_LIGHT,
                 DragShareSettings.STYLE_SIMPLE,
@@ -310,18 +310,18 @@ public final class DragShareSettingsTest {
                 true,
                 new LinkedHashSet<>(),
                 Arrays.asList(),
-                DragShareSettings.CONTENT_CAPTURE_PORTAL);
+                DragShareSettings.CONTENT_CAPTURE_ACCESSIBILITY);
 
-        DragShareSettings portalSettings = DragShareSettings.fromBundle(settings.toBundle());
+        DragShareSettings roundTripped = DragShareSettings.fromBundle(settings.toBundle());
 
-        assertTrue(portalSettings.isPortalCaptureMode());
+        assertTrue(roundTripped.isAccessibilityCaptureMode());
         assertEquals(
                 DragShareSettings.MIN_SIMPLE_MENU_OPACITY_PERCENT,
-                portalSettings.simpleMenuOpacityPercent);
+                roundTripped.simpleMenuOpacityPercent);
         assertEquals(
                 0.2f,
                 DragShareController.simpleMenuBackgroundOpacityFraction(
-                        portalSettings.simpleMenuOpacityPercent),
+                        roundTripped.simpleMenuOpacityPercent),
                 0f);
     }
 
@@ -458,7 +458,7 @@ public final class DragShareSettingsTest {
                 true,
                 new LinkedHashSet<>(),
                 Arrays.asList(),
-                DragShareSettings.CONTENT_CAPTURE_PORTAL,
+                DragShareSettings.CONTENT_CAPTURE_ACCESSIBILITY,
                 false,
                 new LinkedHashSet<>(),
                 DragShareSettings.DEFAULT_ACCESSIBILITY_LONG_PRESS_TIMEOUT_MILLIS,
@@ -543,7 +543,7 @@ public final class DragShareSettingsTest {
     }
 
     @Test
-    public void invalidCaptureModesMigrateToPortal() {
+    public void invalidCaptureModesMigrateToAccessibility() {
         DragShareSettings settings = new DragShareSettings(
                 DragShareSettings.COLOR_LIGHT,
                 DragShareSettings.STYLE_SIMPLE,
@@ -561,10 +561,10 @@ public final class DragShareSettingsTest {
                 new LinkedHashSet<>(),
                 Arrays.asList(),
                 99);
-        assertTrue(settings.isPortalCaptureMode());
+        assertTrue(settings.isAccessibilityCaptureMode());
 
         Bundle oldBundle = new Bundle();
-        assertTrue(DragShareSettings.fromBundle(oldBundle).isPortalCaptureMode());
+        assertTrue(DragShareSettings.fromBundle(oldBundle).isAccessibilityCaptureMode());
     }
 
     @Test

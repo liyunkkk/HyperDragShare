@@ -30,7 +30,9 @@ final class DragShareToast {
         this.windowManager = context == null
                 ? null
                 : (WindowManager) context.getSystemService(Context.WINDOW_SERVICE);
-        this.windowPolicy = windowPolicy == null ? OverlayWindowPolicy.portal() : windowPolicy;
+        this.windowPolicy = windowPolicy == null
+                ? OverlayWindowPolicy.accessibility()
+                : windowPolicy;
     }
 
     void show(String message) {

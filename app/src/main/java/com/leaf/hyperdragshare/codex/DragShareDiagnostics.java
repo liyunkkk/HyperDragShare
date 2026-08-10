@@ -113,8 +113,7 @@ final class DragShareDiagnostics {
                 + " incremental=" + safe(Build.VERSION.INCREMENTAL)
                 + " fingerprint=" + safe(Build.FINGERPRINT)
                 + " abis=" + Arrays.toString(Build.SUPPORTED_ABIS));
-        DragShareLog.d(TAG, "target portal=" + MainHook.TAPLUS_PACKAGE
-                + " version=" + packageVersion(context, MainHook.TAPLUS_PACKAGE));
+        DragShareLog.d(TAG, "capture source=accessibility (root evdev)");
         DragShareLog.d(TAG, "LSPosed Manager package="
                 + packageVersion(context, "org.lsposed.manager"));
         if (xposedBridgeVersion != null && !xposedBridgeVersion.trim().isEmpty()) {

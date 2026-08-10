@@ -41,27 +41,18 @@ public final class ShareImageProvider extends ContentProvider {
 
     @Override
     public Bundle call(String method, String arg, Bundle extras) {
-        if (ModuleActivation.METHOD_REPORT_INJECTED.equals(method)) {
-            enforcePortalCaller();
-            ModuleActivation.recordInjected(contextOrThrow(), extras);
-            return Bundle.EMPTY;
-        }
-        if (DragShareSettings.METHOD_GET_SETTINGS.equals(method)) {
-            enforcePortalCaller();
-            return DragShareSettings.readLocal(contextOrThrow()).toBundle();
-        }
         if (ImageStagingClient.METHOD_GRANT.equals(method)) {
-            enforcePortalCaller();
+            enforceModuleCaller();
             return grantImage(extras);
         }
         if (ImageStagingClient.METHOD_REVOKE.equals(method)) {
-            enforcePortalCaller();
+            enforceModuleCaller();
             return revokeImage(extras);
         }
         if (!ImageStagingClient.METHOD_STAGE.equals(method)) {
             return super.call(method, arg, extras);
         }
-        enforcePortalCaller();
+        enforceModuleCaller();
         return stageImage(extras);
     }
 
@@ -113,9 +104,6 @@ public final class ShareImageProvider extends ContentProvider {
         }
 
         Uri uri = uriForToken(token, suffix);
-        grantReadAccessAsOwner(
-                MainHook.TAPLUS_PACKAGE,
-                uri);
         DragShareLog.i(TAG, "staged format=" + (png ? "png" : "jpeg")
                 + " bytes=" + written);
         Bundle result = new Bundle();
@@ -280,7 +268,7 @@ public final class ShareImageProvider extends ContentProvider {
         return packageName;
     }
 
-    private void enforcePortalCaller() {
+    private void enforceModuleCaller() {
         int callingUid = Binder.getCallingUid();
         if (callingUid == Process.myUid()) {
             return;
@@ -289,12 +277,12 @@ public final class ShareImageProvider extends ContentProvider {
         String[] packages = packageManager.getPackagesForUid(callingUid);
         if (packages != null) {
             for (String packageName : packages) {
-                if (MainHook.TAPLUS_PACKAGE.equals(packageName)) {
+                if (contextOrThrow().getPackageName().equals(packageName)) {
                     return;
                 }
             }
         }
-        throw new SecurityException("Only Taplus can stage share images");
+        throw new SecurityException("Only the module can stage share images");
     }
 
     private File resolveFile(Uri uri) {

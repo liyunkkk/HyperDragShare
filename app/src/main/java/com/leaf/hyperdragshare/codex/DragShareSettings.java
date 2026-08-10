@@ -18,9 +18,8 @@ public final class DragShareSettings {
     public static final int COLOR_LIGHT = 0;
     public static final int COLOR_DARK = 1;
 
-    public static final int CONTENT_CAPTURE_PORTAL = 0;
     public static final int CONTENT_CAPTURE_ACCESSIBILITY = 1;
-    public static final int DEFAULT_CONTENT_CAPTURE_MODE = CONTENT_CAPTURE_PORTAL;
+    public static final int DEFAULT_CONTENT_CAPTURE_MODE = CONTENT_CAPTURE_ACCESSIBILITY;
 
     public static final int LOG_LEVEL_DISABLED = 0;
     public static final int LOG_LEVEL_INFO = 1;
@@ -31,8 +30,7 @@ public final class DragShareSettings {
     public static final int LOG_DESTINATION_FILE = 1;
     public static final int DEFAULT_LOG_DESTINATION = LOG_DESTINATION_SYSTEM;
 
-    /** Change notification only; settings values remain behind the trusted Provider RPC. */
-    private static final String SETTINGS_URI_VALUE = "content://com.leaf.hyperdragshare.codex.share/settings";
+    static final String SETTINGS_URI_VALUE = "content://com.leaf.hyperdragshare.codex.share/settings";
 
     /** Compact overlay retained from the original implementation. */
     public static final int STYLE_SIMPLE = 0;
@@ -112,8 +110,7 @@ public final class DragShareSettings {
     /** Stable key for the built-in text action. It is kept ahead of app targets. */
     public static final String TARGET_TEXT_SEGMENTATION = "builtin:text_segmentation";
 
-    static final String METHOD_GET_SETTINGS = "get_settings";
-
+    static final String KEY_TARGET_ORDER = "target_order";
     private static final String PREFS_NAME = "drag_share_settings";
     private static final String KEY_COLOR_MODE = "color_mode";
     private static final String KEY_CONTENT_CAPTURE_MODE = "content_capture_mode";
@@ -135,7 +132,6 @@ public final class DragShareSettings {
     private static final String KEY_MODERN_GLASS_OPACITY = "modern_glass_opacity_percent";
     private static final String KEY_CLOSE_MENU_WHEN_POINTER_LEAVES = "close_menu_when_pointer_leaves";
     private static final String KEY_HIDDEN_TARGETS = "hidden_targets";
-    private static final String KEY_TARGET_ORDER = "target_order";
     private static final String KEY_ACCESSIBILITY_LANDSCAPE_RECOGNITION_ENABLED =
             "accessibility_landscape_recognition_enabled";
     private static final String KEY_ACCESSIBILITY_BLACKLISTED_PACKAGES =
@@ -316,7 +312,7 @@ public final class DragShareSettings {
                 DEFAULT_CONTENT_CAPTURE_MODE);
     }
 
-    /** Full constructor. Invalid capture modes intentionally migrate to the portal default. */
+    /** Full constructor. Invalid capture modes intentionally migrate to the accessibility default. */
     public DragShareSettings(
             int colorMode,
             int uiStyle,
@@ -843,22 +839,6 @@ public final class DragShareSettings {
         context.getContentResolver().notifyChange(settingsUri(), null);
     }
 
-    static DragShareSettings readFromProvider(Context portalContext) {
-        if (portalContext == null) {
-            return defaults();
-        }
-        try {
-            Bundle result = portalContext.getContentResolver().call(
-                    ImageStagingClient.BASE_URI,
-                    METHOD_GET_SETTINGS,
-                    null,
-                    null);
-            return fromBundle(result);
-        } catch (Throwable ignored) {
-            return defaults();
-        }
-    }
-
     Bundle toBundle() {
         Bundle result = new Bundle();
         result.putInt(KEY_COLOR_MODE, colorMode);
@@ -990,12 +970,8 @@ public final class DragShareSettings {
         return image ? imageSharingEnabled : textSharingEnabled;
     }
 
-    public boolean isPortalCaptureMode() {
-        return contentCaptureMode == CONTENT_CAPTURE_PORTAL;
-    }
-
     public boolean isAccessibilityCaptureMode() {
-        return contentCaptureMode == CONTENT_CAPTURE_ACCESSIBILITY;
+        return true;
     }
 
     public boolean isModernStyle() {
@@ -1124,9 +1100,7 @@ public final class DragShareSettings {
     }
 
     private static int normalizeContentCaptureMode(int mode) {
-        return mode == CONTENT_CAPTURE_ACCESSIBILITY
-                ? CONTENT_CAPTURE_ACCESSIBILITY
-                : CONTENT_CAPTURE_PORTAL;
+        return CONTENT_CAPTURE_ACCESSIBILITY;
     }
 
     private static int normalizeAccessibilityLongPressTimeout(int timeoutMillis) {
