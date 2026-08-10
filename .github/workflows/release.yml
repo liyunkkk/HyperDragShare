@@ -51,8 +51,14 @@ jobs:
           SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
           SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
         run: |
+          set +e
           ./gradlew assembleRelease --max-workers=2 --stacktrace \
-            -Dorg.gradle.jvmargs="-Xmx4096m -XX:MaxMetaspaceSize=1024m -Dfile.encoding=UTF-8"
+            -Dorg.gradle.jvmargs="-Xmx4096m -XX:MaxMetaspaceSize=1024m -Dfile.encoding=UTF-8" \
+            > "$RUNNER_TEMP/gradle-assemble.log" 2>&1
+          status=$?
+          grep -n -E "What went wrong|Caused by:|FAILED|OutOfMemory|Compilation failed|Unsupported|Execution failed" "$RUNNER_TEMP/gradle-assemble.log" | head -50 | sed 's/^/::error::/'
+          tail -80 "$RUNNER_TEMP/gradle-assemble.log" | sed 's/^/::debug::/'
+          exit $status
 
       - name: Locate signed release APK
         id: release_apk
