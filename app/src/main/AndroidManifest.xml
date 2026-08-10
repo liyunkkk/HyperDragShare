@@ -21,6 +21,16 @@
         </intent>
     </queries>
 
+    <!--
+      Signature-level permission gating the system_server control receiver:
+      only a package signed with the module key can deliver the ordered
+      broadcast that toggles accessibility-service protection.
+    -->
+    <permission
+        android:name="com.leaf.hyperdragshare.codex.permission.CONTROL_ACCESSIBILITY_PROTECTION"
+        android:protectionLevel="signature"
+        tools:ignore="ProtectedPermissions" />
+
     <application
         android:name=".DragShareApplication"
         android:allowBackup="false"

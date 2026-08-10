@@ -1,5 +1,7 @@
 package com.leaf.hyperdragshare.codex;
 
+import android.os.Process;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -172,9 +174,13 @@ final class AccessibilityServiceMerge {
             int protocolVersion,
             int senderUid,
             int appUid) {
+        // Delivery is gated by the signature-level CONTROL_ACCESSIBILITY_PROTECTION
+        // permission: only the module itself can hold it, so a delivered broadcast is
+        // already trusted. Sender identity is hidden to SYSTEM_UID on Android 12/13,
+        // and exposed as the real UID on Android 14+ with setShareIdentityEnabled.
         return ordered
                 && protocolVersion == AccessibilityProtectionProtocol.VERSION
                 && senderUid >= 0
-                && senderUid == appUid;
+                && (senderUid == appUid || senderUid == Process.SYSTEM_UID);
     }
 }

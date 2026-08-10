@@ -37,7 +37,7 @@ HyperDragShare 是一个 Android LSPosed 模块，通过无障碍服务识别文
 
 ## 发布
 
-向 GitHub 推送形如 `v1.8.0` 的 tag 后，GitHub Actions 会执行测试、Lint，并通过 R8 构建已签名的 Release APK，随后自动创建对应的 GitHub Release 与 APK 附件。
+向 GitHub 推送形如 `v1.8.1` 的 tag 后，GitHub Actions 会执行测试、Lint，并通过 R8 构建已签名的 Release APK，随后自动创建对应的 GitHub Release 与 APK 附件。
 
 ## 许可证
 

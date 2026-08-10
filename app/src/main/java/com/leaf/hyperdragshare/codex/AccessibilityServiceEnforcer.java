@@ -15,11 +15,13 @@ import android.database.ContentObserver;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
+import android.os.Process;
 import android.os.SystemClock;
 import android.os.UserManager;
 import android.provider.Settings;
 import android.util.Log;
 
+import java.lang.reflect.Method;
 import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
 import java.util.ArrayList;
@@ -332,11 +334,27 @@ final class AccessibilityServiceEnforcer {
         }
     }
 
+    private static int senderUidOf(BroadcastReceiver receiver) {
+        try {
+            Method getSentFromUid = BroadcastReceiver.class.getMethod("getSentFromUid");
+            return ((Integer) getSentFromUid.invoke(receiver)).intValue();
+        } catch (NoSuchMethodException notFound) {
+            try {
+                Method getSendingUid = BroadcastReceiver.class.getMethod("getSendingUid");
+                return ((Integer) getSendingUid.invoke(receiver)).intValue();
+            } catch (Throwable failure) {
+                return Process.SYSTEM_UID;
+            }
+        } catch (Throwable failure) {
+            return Process.SYSTEM_UID;
+        }
+    }
+
     private BroadcastReceiver createControlReceiver() {
         return new BroadcastReceiver() {
             @Override
             public void onReceive(Context receiverContext, Intent intent) {
-                final int senderUid = android.os.Binder.getCallingUid();
+                final int senderUid = senderUidOf(this);
                 final boolean ordered = isOrderedBroadcast();
                 final String action = intent == null ? null : intent.getAction();
                 final int protocolVersion = intent == null

@@ -1,6 +1,6 @@
 # HyperDragShare 完整实现说明
 
-本文记录 HyperDragShare `1.8.0`（`versionCode 74`）的当前完整实现、关键兼容性选择和已验证
+本文记录 HyperDragShare `1.8.1`（`versionCode 75`）的当前完整实现、关键兼容性选择和已验证
 设备参数。实现目标是：无障碍服务识别长按文字或图片后，在手指附近立即显示预览；同一根手指
 无需抬起即可继续拖动；简洁和现代样式可按设置出现在上、下、左、右或近手侧，流光样式在底部显示横向分享菜单，环形样式可从左右边缘展开半圆
 菜单；停留在可滚动热区时自动滚动；松手落在目标上时直接分享。
@@ -94,8 +94,11 @@ Context 和 `BackgroundThread.getHandler()`，创建并启动 `AccessibilityServ
    `enabled_accessibility_services` / `accessibility_enabled`。
 2. 模块侧 `AccessibilityKeepAlive.sync()` 只在用户开启“强制保持无障碍开启”时通过
    `AccessibilityProtectionClient` 发送 ordered broadcast（`ACTION_SET` / `ACTION_RECOVER`）。
-   广播使用 Android 14+ 的 `setShareIdentityEnabled(true)`，system_server 内的控制接收器用
-   `Binder.getCallingUid()` 校验发送方 UID，配合协议版本和签名钉扎后才接受。
+   广播使用 Android 14+ 的 `setShareIdentityEnabled(true)`，system_server 内的控制接收器
+   注册时要求发送方持有签名级权限 `CONTROL_ACCESSIBILITY_PROTECTION`，并用
+   `BroadcastReceiver.getSentFromUid()`（API 34+）或旧名 `getSendingUid()`（API 33）读取
+   发送方 UID，配合协议版本和签名钉扎后才接受。Android 12/13 上 sender identity 默认隐藏，
+   投递靠签名权限门禁保证来源可信，接受的 UID 为模块自身或 `SYSTEM_UID`。
 3. 开关写入 `Settings.Global` 后，同一进程的 `ContentObserver` 触发 repair：把本模块的
    `com.leaf.hyperdragshare.codex/.DragShareAccessibilityService` 追加回
    `enabled_accessibility_services`（保留其他已启用服务）并确保主开关开启；带回退时间与
