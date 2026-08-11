@@ -53,4 +53,28 @@ public class ImageOcrEngineTest {
         assertEquals(1280, bounds.right - bounds.left);
         assertEquals(1280, bounds.bottom - bounds.top);
     }
+
+    @Test
+    public void recognitionTimeoutIsWithinReason() {
+        assertTrue(ImageOcrEngine.OCR_TIMEOUT_SECONDS > 0);
+        assertTrue(ImageOcrEngine.OCR_TIMEOUT_SECONDS <= 60);
+    }
+
+    @Test
+    public void invalidOcrInputInvokesFailureCallback() {
+        ImageOcrEngine.recognize(
+                null,
+                null,
+                new ImageOcrEngine.Callback() {
+                    @Override
+                    public void onResult(String text) {
+                        throw new AssertionError("invalid input must fail, not succeed");
+                    }
+
+                    @Override
+                    public void onFailure(Throwable error) {
+                        assertTrue(error instanceof IllegalArgumentException);
+                    }
+                });
+    }
 }

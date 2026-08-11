@@ -1,6 +1,6 @@
 # HyperDragShare 完整实现说明
 
-本文记录 HyperDragShare `1.8.3`（`versionCode 77`）的当前完整实现、关键兼容性选择和已验证
+本文记录 HyperDragShare `1.8.4`（`versionCode 78`）的当前完整实现、关键兼容性选择和已验证
 设备参数。实现目标是：无障碍服务识别长按文字或图片后，在手指附近立即显示预览；同一根手指
 无需抬起即可继续拖动；简洁和现代样式可按设置出现在上、下、左、右或近手侧，流光样式在底部显示横向分享菜单，环形样式可从左右边缘展开半圆
 菜单；停留在可滚动热区时自动滚动；松手落在目标上时直接分享。图片长按后由 ML Kit 离线
@@ -620,6 +620,10 @@ grant。URI 和文件实际存在，但 Provider 因调用 UID 不匹配拒绝�
 - 使用 Google ML Kit `text-recognition-chinese:16.0.1` bundled 模型，`TextRecognition.getClient()`
   带 `ChineseTextRecognizerOptions`（builder 构造）创建单例识别器，中英混排均可离线识别，
   不写持久化存储。无障碍服务连接时后台预热识别器，避免首次手势的模型加载延迟。
+- 识别在守护线程内以 `Tasks.await(...)`（15 秒超时）阻塞等待 ML Kit 的异步
+  `process()` 完成后再取结果。不能使用 `Task.getResult()`：它在异步任务未完成时
+  立即抛 `IllegalStateException: Task is not yet complete`，会让 OCR 每次都失败并
+  静默回退图片（1.8.2/1.8.3 的实测根因）。
 - 识别结果非空时，主线程把会话载荷替换为 `CapturedContent.text(...)`，重新查询分享目标，
   并重建/刷新当前菜单；预览仍显示原图，用户手指下就是图片，不打断视觉。
 - 识别无结果、失败或会话已结束时，静默保留图片载荷，分享按图片路径进行；识别期间不展示

@@ -493,6 +493,7 @@ final class DragShareController {
 
         if (payload.isImage()) {
             final Session stagedSession = session;
+            final long stagingStartedAtMs = SystemClock.elapsedRealtime();
             ImageStagingClient.stage(context, payload.bitmap, new ImageStagingClient.Callback() {
                 @Override
                 public void onStaged(Uri uri) {
@@ -501,6 +502,10 @@ final class DragShareController {
                             return;
                         }
                         stagedSession.stagedUri = uri;
+                        log("image staged elapsedMs="
+                                + (SystemClock.elapsedRealtime() - stagingStartedAtMs)
+                                + " pendingTarget=" + (stagedSession.pendingTarget == null ? "null"
+                                : stagedSession.pendingTarget.component.flattenToShortString()));
                         if (stagedSession.pendingTarget != null) {
                             launchPendingShare(stagedSession);
                         }
@@ -528,8 +533,13 @@ final class DragShareController {
     private void startImageOcr(final Session ocrSession) {
         CapturedContent payload = ocrSession.payload;
         if (payload == null || payload.bitmap == null || payload.bitmap.isRecycled()) {
+            log("image ocr skipped payload=" + (payload == null ? "null"
+                    : (payload.bitmap == null ? "null-bitmap" : "recycled-bitmap")));
             return;
         }
+        final long ocrStartedAtMs = SystemClock.elapsedRealtime();
+        log("image ocr start size=" + payload.bitmap.getWidth() + "x"
+                + payload.bitmap.getHeight());
         ImageOcrEngine.recognize(
                 context,
                 payload.bitmap,
@@ -559,7 +569,12 @@ final class DragShareController {
                                     && ocrSession.stagedUri == null) {
                                 launchPendingShare(ocrSession);
                             }
-                            log("image ocr ready textLength=" + text.length());
+                            log("image ocr ready textLength=" + text.length()
+                                    + " elapsedMs=" + (SystemClock.elapsedRealtime() - ocrStartedAtMs)
+                                    + " active=" + active
+                                    + " pendingTarget=" + (ocrSession.pendingTarget == null ? "null"
+                                    : ocrSession.pendingTarget.component.flattenToShortString())
+                                    + " stagedUri=" + (ocrSession.stagedUri == null ? "null" : "set"));
                         });
                     }
 
@@ -567,7 +582,9 @@ final class DragShareController {
                     public void onFailure(Throwable error) {
                         mainHandler.post(() -> {
                             if (!destroyed && !ocrSession.cancelled) {
-                                log("image ocr failed", error);
+                                log("image ocr failed elapsedMs="
+                                        + (SystemClock.elapsedRealtime() - ocrStartedAtMs),
+                                        error);
                             }
                         });
                     }

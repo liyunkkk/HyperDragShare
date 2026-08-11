@@ -4,6 +4,7 @@ import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.Rect;
 
+import com.google.android.gms.tasks.Tasks;
 import com.google.mlkit.vision.common.InputImage;
 import com.google.mlkit.vision.text.Text;
 import com.google.mlkit.vision.text.TextRecognition;
@@ -13,6 +14,7 @@ import com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Offline OCR for captured image payloads backed by Google ML Kit's bundled
@@ -27,6 +29,7 @@ final class ImageOcrEngine {
     }
 
     static final int MAX_DIMENSION_PX = 1280;
+    static final long OCR_TIMEOUT_SECONDS = 15;
 
     private static final ExecutorService EXECUTOR = Executors.newSingleThreadExecutor(runnable -> {
         Thread thread = new Thread(runnable, "drag-share-ocr");
@@ -69,9 +72,11 @@ final class ImageOcrEngine {
         }
         executor.execute(() -> {
             try {
-                Text result = textRecognizer(context).process(InputImage.fromBitmap(
-                        scaledForRecognition(bitmap),
-                        0)).getResult();
+                Text result = Tasks.await(
+                        textRecognizer(context).process(
+                                InputImage.fromBitmap(scaledForRecognition(bitmap), 0)),
+                        OCR_TIMEOUT_SECONDS,
+                        TimeUnit.SECONDS);
                 String text = result == null ? "" : result.getText();
                 if (text == null) {
                     text = "";
