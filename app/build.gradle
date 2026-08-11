@@ -12,8 +12,11 @@ android {
         applicationId 'com.leaf.hyperdragshare.codex'
         minSdk 33
         targetSdk 34
-        versionCode 76
-        versionName '1.8.2'
+        versionCode 77
+        versionName '1.8.3'
+        ndk {
+            abiFilters 'arm64-v8a'
+        }
     }
 
     compileOptions {
@@ -128,7 +131,7 @@ dependencies {
     implementation 'top.yukonga.miuix.kmp:miuix-icons-android:0.9.3'
     implementation 'top.yukonga.miuix.kmp:miuix-navigation3-ui-android:0.9.3'
     implementation 'top.yukonga.miuix.kmp:miuix-blur-android:0.9.3'
-    implementation 'com.google.mlkit:text-recognition:16.0.1'
+    implementation 'com.google.mlkit:text-recognition-chinese:16.0.1'
     testImplementation 'junit:junit:4.13.2'
     testImplementation 'org.robolectric:robolectric:4.14.1'
 }

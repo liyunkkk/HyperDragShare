@@ -8,7 +8,7 @@ import com.google.mlkit.vision.common.InputImage;
 import com.google.mlkit.vision.text.Text;
 import com.google.mlkit.vision.text.TextRecognition;
 import com.google.mlkit.vision.text.TextRecognizer;
-import com.google.mlkit.vision.text.latin.TextRecognizerOptions;
+import com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions;
 
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
@@ -37,6 +37,20 @@ final class ImageOcrEngine {
     private static TextRecognizer recognizer;
 
     private ImageOcrEngine() {}
+
+    /** Pre-initializes the bundled model on a background thread to avoid first-gesture lag. */
+    static void warmUp(Context context) {
+        if (context == null) {
+            return;
+        }
+        EXECUTOR.execute(() -> {
+            try {
+                textRecognizer(context);
+            } catch (Throwable ignored) {
+                // Warm-up is best effort; recognition falls back to lazy init.
+            }
+        });
+    }
 
     static void recognize(Context context, Bitmap bitmap, Callback callback) {
         recognize(context, bitmap, EXECUTOR, callback);
@@ -104,7 +118,8 @@ final class ImageOcrEngine {
     private static TextRecognizer textRecognizer(Context context) {
         synchronized (RECOGNIZER_LOCK) {
             if (recognizer == null) {
-                recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
+                recognizer = TextRecognition.getClient(
+                        new ChineseTextRecognizerOptions.Builder().build());
             }
             return recognizer;
         }

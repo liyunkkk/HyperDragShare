@@ -9,7 +9,8 @@
 ## 工程基线
 
 - 工程类型：Android LSPosed 模块，Java/Kotlin 17，minSdk 33，targetSdk 34，compileSdk 37。
-- 当前版本：`1.8.2`，`versionCode 76`。
+- 当前版本：`1.8.3`，`versionCode 77`。
+- 原生库与 ML Kit 离线识别仅打包 `arm64-v8a`（`abiFilters`），兼容现代真机，显著减小 APK。
 - LSPosed 入口为 `com.leaf.hyperdragshare.codex.MainHook`；默认作用域为系统进程
   `android`，仅在 system_server 内安装无障碍保护门闩 Hook。
 - 已删除传送门（`com.miui.contentextension`）捕获运行方案；内容获取只保留无障碍模式。

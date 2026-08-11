@@ -537,7 +537,7 @@ final class DragShareController {
                     @Override
                     public void onResult(String text) {
                         mainHandler.post(() -> {
-                            if (destroyed || ocrSession.cancelled || !active) {
+                            if (destroyed || ocrSession.cancelled) {
                                 return;
                             }
                             if (text == null || text.trim().isEmpty()) {
@@ -552,8 +552,13 @@ final class DragShareController {
                             }
                             ocrSession.payload = textPayload;
                             ocrSession.ocrReady = true;
-                            shareTargets = safeQueryTargets(textPayload);
-                            refreshMenuAfterOcr();
+                            if (active) {
+                                shareTargets = safeQueryTargets(textPayload);
+                                refreshMenuAfterOcr();
+                            } else if (ocrSession.pendingTarget != null
+                                    && ocrSession.stagedUri == null) {
+                                launchPendingShare(ocrSession);
+                            }
                             log("image ocr ready textLength=" + text.length());
                         });
                     }
@@ -584,6 +589,14 @@ final class DragShareController {
         if (isCircleStyle()) {
             if (circleMenuView != null) {
                 circleMenuView.setTargets(shareTargets);
+                if (wasShown) {
+                    menuShown = true;
+                    circleEdge = circlePendingEdge;
+                    circleMenuView.expand(circleEdge, lastX, lastY);
+                    updatePreviewPosition(lastX, lastY);
+                    startCirclePreviewAnimation();
+                    mainHandler.post(() -> updateSelectedTarget(lastX, lastY));
+                }
             }
             return;
         }
@@ -1647,8 +1660,12 @@ final class DragShareController {
 
     private void launchPendingShare(Session pendingSession) {
         ShareTarget target = pendingSession.pendingTarget;
-        if (target == null
-                || (pendingSession.stagedUri == null && !target.isSaveToLocal())) {
+        boolean waitingForImageUri = pendingSession.stagedUri == null
+                && target != null
+                && !target.isSaveToLocal()
+                && pendingSession.payload != null
+                && pendingSession.payload.isImage();
+        if (target == null || waitingForImageUri) {
             return;
         }
         pendingSession.pendingTarget = null;

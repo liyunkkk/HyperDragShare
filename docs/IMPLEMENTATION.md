@@ -1,6 +1,6 @@
 # HyperDragShare 完整实现说明
 
-本文记录 HyperDragShare `1.8.2`（`versionCode 76`）的当前完整实现、关键兼容性选择和已验证
+本文记录 HyperDragShare `1.8.3`（`versionCode 77`）的当前完整实现、关键兼容性选择和已验证
 设备参数。实现目标是：无障碍服务识别长按文字或图片后，在手指附近立即显示预览；同一根手指
 无需抬起即可继续拖动；简洁和现代样式可按设置出现在上、下、左、右或近手侧，流光样式在底部显示横向分享菜单，环形样式可从左右边缘展开半圆
 菜单；停留在可滚动热区时自动滚动；松手落在目标上时直接分享。图片长按后由 ML Kit 离线
@@ -617,17 +617,20 @@ grant。URI 和文件实际存在，但 Provider 因调用 UID 不匹配拒绝�
 
 - 输入 Bitmap 若任一边超过 `1280 px`，先等比缩放到 `1280 px` 内再识别（`computeScaledBounds`
   为可单测的纯函数）。
-- 使用 Google ML Kit `text-recognition:16.0.1` bundled 模型，`TextRecognition.getClient()`
-  带 `TextRecognizerOptions.DEFAULT_OPTIONS` 创建单例识别器，全程离线，不写持久化存储。
+- 使用 Google ML Kit `text-recognition-chinese:16.0.1` bundled 模型，`TextRecognition.getClient()`
+  带 `ChineseTextRecognizerOptions`（builder 构造）创建单例识别器，中英混排均可离线识别，
+  不写持久化存储。无障碍服务连接时后台预热识别器，避免首次手势的模型加载延迟。
 - 识别结果非空时，主线程把会话载荷替换为 `CapturedContent.text(...)`，重新查询分享目标，
   并重建/刷新当前菜单；预览仍显示原图，用户手指下就是图片，不打断视觉。
 - 识别无结果、失败或会话已结束时，静默保留图片载荷，分享按图片路径进行；识别期间不展示
   任何进度或提示。
 - 松手路径对文本载荷零改动：复制、文本分词、显式分享都复用既有 `launchShare`，OCR 只是
-  把 `payload` 从图片换成文本。
+  把 `payload` 从图片换成文本。拖拽未结束（`active`）时刷新菜单目标；已松手但图片 URI
+  尚未暂存完（`pendingTarget` 等待中）时直接以文本载荷完成待分享动作。
 
-OCR 依赖加入 `app/build.gradle`（`implementation 'com.google.mlkit:text-recognition:16.0.1'`），
-APK 体积增加约 2-4 MB；`proguard-rules.pro` 保留 `com.google.mlkit.**` 与
+OCR 依赖加入 `app/build.gradle`（`implementation 'com.google.mlkit:text-recognition-chinese:16.0.1'`），
+且 `ndk.abiFilters` 只保留 `arm64-v8a`，Release APK 体积因此控制在 30 MB 以内；
+`proguard-rules.pro` 保留 `com.google.mlkit.**` 与
 `com.google.android.gms.internal.mlkit_common.**` 供 bundled 模型反射加载。
 
 ## 10. 会话结束与资源清理

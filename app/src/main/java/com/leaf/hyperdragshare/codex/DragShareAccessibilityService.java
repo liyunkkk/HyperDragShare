@@ -108,6 +108,9 @@ public final class DragShareAccessibilityService extends AccessibilityService {
         registerSettingsObserver();
         registerScreenReceiver();
         applyMode();
+        if (DragShareSettings.readLocal(this).imageOcrEnabled) {
+            ImageOcrEngine.warmUp(this);
+        }
     }
 
     @Override
