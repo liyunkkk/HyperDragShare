@@ -519,7 +519,94 @@ final class DragShareController {
                     });
                 }
             });
+            if (settings.imageOcrEnabled) {
+                startImageOcr(session);
+            }
         }
+    }
+
+    private void startImageOcr(final Session ocrSession) {
+        CapturedContent payload = ocrSession.payload;
+        if (payload == null || payload.bitmap == null || payload.bitmap.isRecycled()) {
+            return;
+        }
+        ImageOcrEngine.recognize(
+                context,
+                payload.bitmap,
+                new ImageOcrEngine.Callback() {
+                    @Override
+                    public void onResult(String text) {
+                        mainHandler.post(() -> {
+                            if (destroyed || ocrSession.cancelled || !active) {
+                                return;
+                            }
+                            if (text == null || text.trim().isEmpty()) {
+                                return;
+                            }
+                            CapturedContent textPayload = CapturedContent.text(
+                                    text,
+                                    ocrSession.payload.sourcePackage,
+                                    ocrSession.payload.sourceBounds);
+                            if (textPayload == null) {
+                                return;
+                            }
+                            ocrSession.payload = textPayload;
+                            ocrSession.ocrReady = true;
+                            shareTargets = safeQueryTargets(textPayload);
+                            refreshMenuAfterOcr();
+                            log("image ocr ready textLength=" + text.length());
+                        });
+                    }
+
+                    @Override
+                    public void onFailure(Throwable error) {
+                        mainHandler.post(() -> {
+                            if (!destroyed && !ocrSession.cancelled) {
+                                log("image ocr failed", error);
+                            }
+                        });
+                    }
+                });
+    }
+
+    private void refreshMenuAfterOcr() {
+        if (!active) {
+            return;
+        }
+        boolean wasShown = menuShown;
+        if (wasShown) {
+            hideLinearMenu();
+            if (isCircleStyle() && circleMenuView != null) {
+                circleMenuView.collapse();
+                menuShown = false;
+            }
+        }
+        if (isCircleStyle()) {
+            if (circleMenuView != null) {
+                circleMenuView.setTargets(shareTargets);
+            }
+            return;
+        }
+        View previousMenuView = menuView;
+        if (!isModernStyle() && previousMenuView != null) {
+            cancelLinearMenuFadeOut();
+            removeLinearMenuImmediately(previousMenuView);
+        }
+        if (isModernStyle() && modernMenuWindow != null) {
+            modernMenuWindow.dispose();
+        }
+        menuView = null;
+        modernMenuView = null;
+        modernMenuWindow = null;
+        menuParams = null;
+        menuScroll = null;
+        menuVerticalScroll = null;
+        menuRow = null;
+        createMenu();
+        if (wasShown) {
+            showMenuOnMain();
+        }
+        updatePreviewPosition(lastX, lastY);
     }
 
     private List<ShareTarget> safeQueryTargets(CapturedContent payload) {
@@ -2236,10 +2323,11 @@ final class DragShareController {
     }
 
     private static final class Session {
-        final CapturedContent payload;
+        CapturedContent payload;
         Uri stagedUri;
         ShareTarget pendingTarget;
         boolean cancelled;
+        boolean ocrReady;
 
         Session(CapturedContent payload) {
             this.payload = payload;

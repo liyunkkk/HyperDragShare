@@ -87,6 +87,7 @@ public final class DragShareSettings {
     public static final boolean DEFAULT_BLOCK_BACKGROUND_SCROLL = false;
     public static final boolean DEFAULT_TEXT_SHARING_ENABLED = true;
     public static final boolean DEFAULT_IMAGE_SHARING_ENABLED = true;
+    public static final boolean DEFAULT_IMAGE_OCR_ENABLED = true;
     public static final boolean DEFAULT_PRELOAD_TEXT_SEGMENTER = true;
     public static final boolean DEFAULT_CLOSE_MENU_WHEN_POINTER_LEAVES = true;
     public static final boolean DEFAULT_ACCESSIBILITY_LANDSCAPE_RECOGNITION_ENABLED = false;
@@ -142,6 +143,7 @@ public final class DragShareSettings {
             "accessibility_recognition_sensitivity_percent";
     private static final String KEY_FORCE_KEEP_ACCESSIBILITY_ENABLED =
             "force_keep_accessibility_enabled";
+    private static final String KEY_IMAGE_OCR_ENABLED = "image_ocr_enabled";
     private static final String KEY_LOG_LEVEL = "log_level";
     private static final String KEY_LOG_DESTINATION = "log_destination";
 
@@ -169,6 +171,7 @@ public final class DragShareSettings {
     public final int accessibilityLongPressTimeoutMillis;
     public final int accessibilityRecognitionSensitivityPercent;
     public final boolean forceKeepAccessibilityEnabled;
+    public final boolean imageOcrEnabled;
     public final int logLevel;
     public final int logDestination;
 
@@ -597,7 +600,8 @@ public final class DragShareSettings {
                 modernGlassOpacityPercent,
                 DEFAULT_LOG_LEVEL,
                 DEFAULT_LOG_DESTINATION,
-                DEFAULT_FORCE_KEEP_ACCESSIBILITY_ENABLED);
+                DEFAULT_FORCE_KEEP_ACCESSIBILITY_ENABLED,
+                DEFAULT_IMAGE_OCR_ENABLED);
     }
 
     /** Full constructor including diagnostic logging configuration. */
@@ -627,7 +631,8 @@ public final class DragShareSettings {
             int modernGlassOpacityPercent,
             int logLevel,
             int logDestination,
-            boolean forceKeepAccessibilityEnabled) {
+            boolean forceKeepAccessibilityEnabled,
+            boolean imageOcrEnabled) {
         this.colorMode = colorMode == COLOR_DARK ? COLOR_DARK : COLOR_LIGHT;
         this.contentCaptureMode = normalizeContentCaptureMode(contentCaptureMode);
         this.uiStyle = uiStyle == STYLE_SIMPLE
@@ -688,6 +693,7 @@ public final class DragShareSettings {
         this.logLevel = normalizeLogLevel(logLevel);
         this.logDestination = normalizeLogDestination(logDestination);
         this.forceKeepAccessibilityEnabled = forceKeepAccessibilityEnabled;
+        this.imageOcrEnabled = imageOcrEnabled;
     }
 
     public static DragShareSettings defaults() {
@@ -785,7 +791,10 @@ public final class DragShareSettings {
                 preferences.getInt(KEY_LOG_DESTINATION, DEFAULT_LOG_DESTINATION),
                 preferences.getBoolean(
                         KEY_FORCE_KEEP_ACCESSIBILITY_ENABLED,
-                        DEFAULT_FORCE_KEEP_ACCESSIBILITY_ENABLED));
+                        DEFAULT_FORCE_KEEP_ACCESSIBILITY_ENABLED),
+                preferences.getBoolean(
+                        KEY_IMAGE_OCR_ENABLED,
+                        DEFAULT_IMAGE_OCR_ENABLED));
     }
 
     public void saveLocal(Context context) {
@@ -832,6 +841,7 @@ public final class DragShareSettings {
                 .putInt(KEY_LOG_LEVEL, logLevel)
                 .putInt(KEY_LOG_DESTINATION, logDestination)
                 .putBoolean(KEY_FORCE_KEEP_ACCESSIBILITY_ENABLED, forceKeepAccessibilityEnabled)
+                .putBoolean(KEY_IMAGE_OCR_ENABLED, imageOcrEnabled)
                 .apply();
         DragShareLog.configure(this);
         DragShareLog.i("DragShare/Settings", "logging configured level=" + logLevel
@@ -882,6 +892,7 @@ public final class DragShareSettings {
         result.putInt(KEY_LOG_LEVEL, logLevel);
         result.putInt(KEY_LOG_DESTINATION, logDestination);
         result.putBoolean(KEY_FORCE_KEEP_ACCESSIBILITY_ENABLED, forceKeepAccessibilityEnabled);
+        result.putBoolean(KEY_IMAGE_OCR_ENABLED, imageOcrEnabled);
         return result;
     }
 
@@ -963,7 +974,10 @@ public final class DragShareSettings {
                 bundle.getInt(KEY_LOG_DESTINATION, DEFAULT_LOG_DESTINATION),
                 bundle.getBoolean(
                         KEY_FORCE_KEEP_ACCESSIBILITY_ENABLED,
-                        DEFAULT_FORCE_KEEP_ACCESSIBILITY_ENABLED));
+                        DEFAULT_FORCE_KEEP_ACCESSIBILITY_ENABLED),
+                bundle.getBoolean(
+                        KEY_IMAGE_OCR_ENABLED,
+                        DEFAULT_IMAGE_OCR_ENABLED));
     }
 
     public boolean isSharingEnabled(boolean image) {

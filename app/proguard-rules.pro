@@ -5,3 +5,8 @@
 -keep class com.leaf.hyperdragshare.codex.TextSegmenter {
     native <methods>;
 }
+
+# ML Kit bundled text recognition loads resources and keeps internal state
+# by reflection; the bundled model classes must survive minification.
+-keep class com.google.mlkit.** { *; }
+-keep class com.google.android.gms.internal.mlkit_common.** { *; }

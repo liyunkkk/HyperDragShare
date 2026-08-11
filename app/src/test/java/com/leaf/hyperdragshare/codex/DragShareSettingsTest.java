@@ -85,6 +85,8 @@ public final class DragShareSettingsTest {
         assertEquals(DragShareSettings.LOG_LEVEL_INFO, settings.logLevel);
         assertEquals(DragShareSettings.LOG_DESTINATION_SYSTEM, settings.logDestination);
         assertFalse(settings.forceKeepAccessibilityEnabled);
+        assertEquals(DragShareSettings.DEFAULT_IMAGE_OCR_ENABLED, settings.imageOcrEnabled);
+        assertTrue(settings.imageOcrEnabled);
         assertEquals(650, settings.resolveAccessibilityLongPressTimeoutMillis(650));
         assertEquals(1f, settings.accessibilityTouchSlopMultiplier(), 0f);
         assertFalse(settings.isAccessibilityRecognitionEnabledForOrientation(
@@ -121,7 +123,8 @@ public final class DragShareSettingsTest {
                 DragShareSettings.DEFAULT_MODERN_GLASS_OPACITY_PERCENT,
                 DragShareSettings.LOG_LEVEL_DEBUG,
                 DragShareSettings.LOG_DESTINATION_FILE,
-                false);
+                false,
+                true);
 
         DragShareSettings roundTripped = DragShareSettings.fromBundle(settings.toBundle());
         assertEquals(DragShareSettings.LOG_LEVEL_DEBUG, roundTripped.logLevel);
@@ -153,7 +156,8 @@ public final class DragShareSettingsTest {
                 DragShareSettings.DEFAULT_MODERN_GLASS_OPACITY_PERCENT,
                 99,
                 99,
-                false);
+                false,
+                true);
         assertEquals(DragShareSettings.LOG_LEVEL_INFO, invalid.logLevel);
         assertEquals(DragShareSettings.LOG_DESTINATION_SYSTEM, invalid.logDestination);
     }
@@ -595,6 +599,7 @@ public final class DragShareSettingsTest {
                 DragShareSettings.DEFAULT_MODERN_GLASS_OPACITY_PERCENT,
                 DragShareSettings.LOG_LEVEL_INFO,
                 DragShareSettings.LOG_DESTINATION_SYSTEM,
+                true,
                 true);
 
         assertTrue(settings.forceKeepAccessibilityEnabled);

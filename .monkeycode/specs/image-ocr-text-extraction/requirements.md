@@ -25,7 +25,8 @@ HyperDragShare 当前通过无障碍模式识别屏幕上的文字(节点自带�
 
 1. WHEN 长按的载荷是图片,且内容分享对图片启用,THEN 系统 SHALL 在预览显示后启动 OCR 识别。
 2. WHEN OCR 识别完成且文本非空,THEN 系统 SHALL 把识别结果转换为文本载荷并进入既有文本链路。
-3. WHEN OCR 识别完成但文本为空,THEN 系统 SHALL 保持图片载荷,不显示文本结果。
+3. WHEN OCR 识别完成但文本为空,THEN 系统 SHALL 保持图片载荷,不显示文本结果,且不展示任何识别失败提示。
+4. WHEN OCR 正在运行,THEN 系统 SHALL 不展示识别进度,识别完成后文本载荷自动就绪。
 4. WHILE OCR 正在运行,THEN 系统 SHALL 保持预览窗可见且不可中断当前拖拽手势。
 
 ### Requirement 2: 识别结果的复制与分享
@@ -57,6 +58,7 @@ HyperDragShare 当前通过无障碍模式识别屏幕上的文字(节点自带�
 2. WHEN 识别耗时超过 3 秒,THEN 系统 SHALL 继续允许用户以图片载荷完成拖拽与分享。
 3. WHEN 图片过大,THEN 系统 SHALL 先缩放图片到适合识别的尺寸再识别。
 4. WHILE OCR 未完成,THEN 用户拖拽到目标并松手 SHALL 以图片载荷完成分享,不被 OCR 阻塞。
+5. WHEN OCR 识别无结果或失败,THEN 系统 SHALL 静默回退到图片载荷,不弹提示、不展示失败状态。
 
 ### Requirement 5: 离线运行与隐私
 

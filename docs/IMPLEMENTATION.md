@@ -1,9 +1,10 @@
 # HyperDragShare 完整实现说明
 
-本文记录 HyperDragShare `1.8.1`（`versionCode 75`）的当前完整实现、关键兼容性选择和已验证
+本文记录 HyperDragShare `1.8.2`（`versionCode 76`）的当前完整实现、关键兼容性选择和已验证
 设备参数。实现目标是：无障碍服务识别长按文字或图片后，在手指附近立即显示预览；同一根手指
 无需抬起即可继续拖动；简洁和现代样式可按设置出现在上、下、左、右或近手侧，流光样式在底部显示横向分享菜单，环形样式可从左右边缘展开半圆
-菜单；停留在可滚动热区时自动滚动；松手落在目标上时直接分享。
+菜单；停留在可滚动热区时自动滚动；松手落在目标上时直接分享。图片长按后由 ML Kit 离线
+识别文字，识别成功时自动切换为文字载荷继续分享。
 
 ## 1. 运行边界
 
@@ -79,6 +80,7 @@ LSPosed 默认作用域由 `res/values/arrays.xml` 声明，且 `MainHook` 在�
 | `ShareImageProvider.java` | 模块 UID 下暂存图片并提供 content URI |
 | `ShareLauncher.java` | 构造并启动显式 ACTION_SEND |
 | `LocalImageSaver.java` | 将图片保存到系统 Pictures 集合并生成时间文件名 |
+| `ImageOcrEngine.java` | ML Kit 离线文字识别、单例识别器和可单测的缩放边界纯函数 |
 
 ## 3. system_server 保活门闩
 
@@ -450,6 +452,7 @@ Binder transaction code、触摸设备节点或分辨率。root 调用只接受�
 | `content_capture_mode` | 历史键，取值始终被归一化为无障碍（`1`） | `1` |
 | `text_sharing_enabled` | 是否创建文字拖拽会话 | `true` |
 | `image_sharing_enabled` | 是否创建图片拖拽会话 | `true` |
+| `image_ocr_enabled` | 长按图片时是否自动识别文字，成功后转为文字载荷 | `true` |
 | `ui_style` | 拖拽样式：`0` 简洁、`1` 流光、`2` 环形、`3` 现代 | 现代（`3`） |
 | `hidden_targets` | 被隐藏的 Activity/内置动作键集合 | 空集合 |
 | `target_order` | Activity 键的用户顺序 | 空（沿用系统顺序） |
@@ -606,6 +609,26 @@ grant。URI 和文件实际存在，但 Provider 因调用 UID 不匹配拒绝�
 这个取舍意味着：任何拿到完整 URI 的进程都可在文件被清理前读取图片。这正是兼容二次转发
 所需的 bearer-capability 语义。不要重新加入严格的 `checkUriPermission()`，除非同时解决
 跨 UID 转发并用独立 UID 接收器验证 QQ 等真实链路。
+
+## 9.5 图片文字识别（OCR）
+
+图片会话建立时，若设置项"图片文字识别"开启，`DragShareController` 并行调用
+`ImageOcrEngine.recognize()`。OCR 在独立守护线程上执行，不阻塞拖拽手势或主线程：
+
+- 输入 Bitmap 若任一边超过 `1280 px`，先等比缩放到 `1280 px` 内再识别（`computeScaledBounds`
+  为可单测的纯函数）。
+- 使用 Google ML Kit `text-recognition:16.0.1` bundled 模型，`TextRecognition.getClient()`
+  带 `TextRecognizerOptions.DEFAULT_OPTIONS` 创建单例识别器，全程离线，不写持久化存储。
+- 识别结果非空时，主线程把会话载荷替换为 `CapturedContent.text(...)`，重新查询分享目标，
+  并重建/刷新当前菜单；预览仍显示原图，用户手指下就是图片，不打断视觉。
+- 识别无结果、失败或会话已结束时，静默保留图片载荷，分享按图片路径进行；识别期间不展示
+  任何进度或提示。
+- 松手路径对文本载荷零改动：复制、文本分词、显式分享都复用既有 `launchShare`，OCR 只是
+  把 `payload` 从图片换成文本。
+
+OCR 依赖加入 `app/build.gradle`（`implementation 'com.google.mlkit:text-recognition:16.0.1'`），
+APK 体积增加约 2-4 MB；`proguard-rules.pro` 保留 `com.google.mlkit.**` 与
+`com.google.android.gms.internal.mlkit_common.**` 供 bundled 模型反射加载。
 
 ## 10. 会话结束与资源清理
 

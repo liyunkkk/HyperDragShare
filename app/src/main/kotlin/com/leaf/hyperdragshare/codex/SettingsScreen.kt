@@ -419,6 +419,14 @@ private fun MainPage(
                             persist(copySettings(settings, imageSharingEnabled = checked))
                         },
                     )
+                    SwitchPreference(
+                        title = "图片文字识别",
+                        summary = "长按图片时自动识别文字，识别成功后转为文字分享",
+                        checked = settings.imageOcrEnabled,
+                        onCheckedChange = { checked ->
+                            persist(copySettings(settings, imageOcrEnabled = checked))
+                        },
+                    )
                 }
             }
 
@@ -1825,6 +1833,7 @@ private fun copySettings(
     contentCaptureMode: Int = current.contentCaptureMode,
     textSharingEnabled: Boolean = current.textSharingEnabled,
     imageSharingEnabled: Boolean = current.imageSharingEnabled,
+    imageOcrEnabled: Boolean = current.imageOcrEnabled,
     preloadTextSegmenter: Boolean = current.preloadTextSegmenter,
     simpleMenuPosition: Int = current.simpleMenuPosition,
     simpleMenuOpacityPercent: Int = current.simpleMenuOpacityPercent,
@@ -1872,6 +1881,7 @@ private fun copySettings(
     logLevel,
     logDestination,
     forceKeepAccessibilityEnabled,
+    imageOcrEnabled,
 )
 
 @Suppress("DEPRECATION")
