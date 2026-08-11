@@ -90,9 +90,11 @@ system_server 侧的关键轨迹（hook 安装、receiver 注册、收到控制�
 ## 3. system_server 保活门闩
 
 模块接入 LSPosed 后，`MainHook.handleLoadPackage()` 只接受 `packageName == "android"`，然后委托
-`AccessibilityProtectionHooks.install(lpparam.classLoader)`。后者 hook
+`AccessibilityProtectionHooks.install(lpparam.classLoader)`。后者优先 hook
 `SystemServer.startOtherServices(TimingsTraceAndSlog)`，在 after 时刻通过反射读取当前系统
-Context 和 `BackgroundThread.getHandler()`，创建并启动 `AccessibilityServiceEnforcer`。
+Context 和 `BackgroundThread.getHandler()`，创建并启动 `AccessibilityServiceEnforcer`。若主签名
+不存在（ROM 改动），自动回退 hook 稳定的 `SystemServer.main(String[])` 兜底入口；
+context/Handler 暂不可用时还会在主线程上重试启动最多 5 次。
 
 门闩默认关闭，事件驱动，不创建额外线程，不轮询：
 

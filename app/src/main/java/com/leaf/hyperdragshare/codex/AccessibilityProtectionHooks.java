@@ -2,6 +2,7 @@ package com.leaf.hyperdragshare.codex;
 
 import android.content.Context;
 import android.os.Handler;
+import android.os.Looper;
 import android.util.Log;
 
 import java.io.File;
@@ -13,6 +14,7 @@ import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import de.robv.android.xposed.XposedHelpers;
 import de.robv.android.xposed.XC_MethodHook;
@@ -34,6 +36,8 @@ final class AccessibilityProtectionHooks {
             "com.android.internal.os.BackgroundThread";
 
     private static volatile AccessibilityServiceEnforcer enforcer;
+    private static final AtomicInteger startAttempts = new AtomicInteger();
+    private static final int MAX_START_ATTEMPTS = 5;
 
     private AccessibilityProtectionHooks() {}
 
@@ -60,6 +64,17 @@ final class AccessibilityProtectionHooks {
             systemLog("install(classLoader=null) 被调用，classLoader 为空");
             return;
         }
+        boolean installed = tryHookStartOtherServices(classLoader);
+        if (!installed) {
+            installed = tryHookSystemServerMain(classLoader);
+        }
+        if (!installed) {
+            Log.w(TAG, "unable to install accessibility protection hook on any entry point");
+            systemLog("全部 hook 入口均安装失败");
+        }
+    }
+
+    private static boolean tryHookStartOtherServices(ClassLoader classLoader) {
         try {
             final Class<?> systemServerClass = XposedHelpers.findClass(
                     SYSTEM_SERVER_CLASS,
@@ -74,38 +89,97 @@ final class AccessibilityProtectionHooks {
                     new XC_MethodHook() {
                         @Override
                         protected void afterHookedMethod(MethodHookParam param) {
-                            startEnforcer(param.thisObject, classLoader);
+                            startEnforcer(param.thisObject, classLoader, "start_other_services");
                         }
                     });
             Log.i(TAG, "hooked SystemServer.startOtherServices");
             systemLog("已 hook SystemServer.startOtherServices");
+            return true;
         } catch (Throwable failure) {
-            Log.w(TAG, "unable to install accessibility protection hook: "
+            Log.w(TAG, "unable to hook SystemServer.startOtherServices: "
                     + failure.getClass().getSimpleName());
-            systemLog("安装 hook 失败: " + failure.getClass().getSimpleName()
+            systemLog("hook startOtherServices 失败: " + failure.getClass().getSimpleName()
                     + ": " + failure.getMessage());
+            return false;
         }
     }
 
-    private static synchronized void startEnforcer(Object systemServer, ClassLoader classLoader) {
+    /**
+     * Fallback entry point. SystemServer.main(String[]) exists on every API
+     * level with a stable signature; it runs after startOtherServices has
+     * finished, so enforcer startup there is safe. The method is static, so
+     * thisObject is null and context resolution falls back to ActivityThread.
+     */
+    private static boolean tryHookSystemServerMain(ClassLoader classLoader) {
+        try {
+            final Class<?> systemServerClass = XposedHelpers.findClass(
+                    SYSTEM_SERVER_CLASS,
+                    classLoader);
+            XposedHelpers.findAndHookMethod(
+                    systemServerClass,
+                    "main",
+                    String[].class,
+                    new XC_MethodHook() {
+                        @Override
+                        protected void afterHookedMethod(MethodHookParam param) {
+                            startEnforcer(null, classLoader, "main_fallback");
+                        }
+                    });
+            Log.i(TAG, "hooked SystemServer.main as fallback");
+            systemLog("已 hook SystemServer.main 作为兜底入口");
+            return true;
+        } catch (Throwable failure) {
+            Log.w(TAG, "unable to hook SystemServer.main: "
+                    + failure.getClass().getSimpleName());
+            systemLog("hook SystemServer.main 失败: " + failure.getClass().getSimpleName()
+                    + ": " + failure.getMessage());
+            return false;
+        }
+    }
+
+    private static synchronized void startEnforcer(
+            Object systemServer,
+            ClassLoader classLoader,
+            String reason) {
         if (enforcer != null) {
+            systemLog("enforcer 已存在，忽略重复启动请求 (" + reason + ")");
             return;
         }
         Context context = resolveSystemContext(systemServer);
         if (context == null) {
             Log.w(TAG, "SystemServer 已启动，但无法取得 system context");
-            systemLog("SystemServer 已启动但无法取得 system context，跳过");
+            systemLog("无法取得 system context，启动失败 (" + reason + ")");
+            scheduleStartRetry(classLoader, reason);
             return;
         }
         Handler handler = resolveSystemBackgroundHandler(classLoader);
         if (handler == null) {
             Log.w(TAG, "无法取得 Android BackgroundThread，跳过无障碍保护");
-            systemLog("无法取得 BackgroundThread Handler，跳过无障碍保护");
+            systemLog("无法取得 BackgroundThread Handler，启动失败 (" + reason + ")");
+            scheduleStartRetry(classLoader, reason);
             return;
         }
         AccessibilityServiceEnforcer enforcer = new AccessibilityServiceEnforcer(handler);
         AccessibilityProtectionHooks.enforcer = enforcer;
         enforcer.start(context);
+        startAttempts.set(0);
+        systemLog("enforcer 已创建并启动，原因=" + reason);
+    }
+
+    private static void scheduleStartRetry(ClassLoader classLoader, String reason) {
+        if (startAttempts.getAndIncrement() >= MAX_START_ATTEMPTS) {
+            systemLog("enforcer 启动重试次数已用尽");
+            return;
+        }
+        try {
+            final Handler mainHandler = new Handler(Looper.getMainLooper());
+            mainHandler.postDelayed(
+                    () -> startEnforcer(null, classLoader, reason + "_retry"),
+                    2_000L);
+            systemLog("已安排 enforcer 启动重试 (attempt=" + startAttempts.get() + ")");
+        } catch (Throwable failure) {
+            systemLog("无法安排 enforcer 启动重试: " + failure.getClass().getSimpleName());
+        }
     }
 
     private static Context resolveSystemContext(Object systemServer) {
