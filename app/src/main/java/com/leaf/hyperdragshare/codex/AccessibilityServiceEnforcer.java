@@ -21,7 +21,14 @@ import android.os.UserManager;
 import android.provider.Settings;
 import android.util.Log;
 
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
 import java.lang.reflect.Method;
+import java.nio.charset.StandardCharsets;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Locale;
 import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
 import java.util.ArrayList;
@@ -93,6 +100,8 @@ final class AccessibilityServiceEnforcer {
     private volatile long lastRestoreLogAt;
 
     private static final String TAG = "DragShare/Enforcer";
+    private static final String SYSTEM_LOG_DIRECTORY = "/data/local/tmp/HyperDragShare";
+    private static final String SYSTEM_LOG_FILE = SYSTEM_LOG_DIRECTORY + "/system-server.log";
 
     AccessibilityServiceEnforcer(Handler handler) {
         this.handler = handler;
@@ -102,8 +111,10 @@ final class AccessibilityServiceEnforcer {
         if (!started.compareAndSet(false, true)) {
             return;
         }
+        systemLog("enforcer start() 被调用，开始调度 reconcile");
         if (!schedule(context, "system_ready", 0L)) {
             started.set(false);
+            systemLog("enforcer start() 调度失败，标记为未启动");
         }
     }
 
@@ -177,6 +188,8 @@ final class AccessibilityServiceEnforcer {
                 controlSettingObserverRegistered = true;
             } catch (RuntimeException failure) {
                 logFailure("无法监听无障碍保护开关", failure);
+                systemLog("注册开关 ContentObserver 失败: "
+                        + failure.getClass().getSimpleName());
             }
         }
         if (!controlReceiverRegistered) {
@@ -194,8 +207,11 @@ final class AccessibilityServiceEnforcer {
                         handler,
                         Context.RECEIVER_EXPORTED);
                 controlReceiverRegistered = true;
+                systemLog("控制广播 receiver 已注册（签名权限保护）");
             } catch (RuntimeException failure) {
                 logFailure("无法注册无障碍保护控制入口", failure);
+                systemLog("注册控制广播 receiver 失败: "
+                        + failure.getClass().getSimpleName() + ": " + failure.getMessage());
             }
         }
     }
@@ -366,7 +382,13 @@ final class AccessibilityServiceEnforcer {
                         && intent.getBooleanExtra(
                         AccessibilityProtectionProtocol.EXTRA_ENABLED,
                         AccessibilityProtectionProtocol.DEFAULT_ENABLED);
+                systemLog("收到控制广播 action=" + action
+                        + " senderUid=" + senderUid
+                        + " ordered=" + ordered
+                        + " protocol=" + protocolVersion
+                        + " requestedEnabled=" + requestedEnabled);
                 if (!ordered) {
+                    systemLog("控制广播非有序，忽略本次请求");
                     return;
                 }
                 final BroadcastReceiver.PendingResult pendingResult = goAsync();
@@ -385,9 +407,13 @@ final class AccessibilityServiceEnforcer {
                     } catch (RuntimeException failure) {
                         logFailure("无障碍保护控制请求失败", failure);
                     }
+                    systemLog("控制请求处理完成 action=" + action
+                            + " resultCode=" + resultCode
+                            + " actualEnabled=" + actualEnabled);
                     completeControlRequest(pendingResult, resultCode, actualEnabled);
                 });
                 if (!posted) {
+                    systemLog("控制请求无法投递到后台 Handler，返回不可用");
                     completeControlRequest(
                             pendingResult,
                             AccessibilityProtectionProtocol.RESULT_UNAVAILABLE,
@@ -936,6 +962,22 @@ final class AccessibilityServiceEnforcer {
             Log.w(TAG, "无障碍保护后台 Handler 拒绝任务: type="
                     + failure.getClass().getSimpleName());
             return false;
+        }
+    }
+
+    private static void systemLog(String message) {
+        try {
+            File directory = new File(SYSTEM_LOG_DIRECTORY);
+            if (!directory.exists() && !directory.mkdirs()) {
+                return;
+            }
+            String line = new SimpleDateFormat("HH:mm:ss.SSS", Locale.US).format(new Date())
+                    + " [system_server] " + message + "\n";
+            try (FileOutputStream output = new FileOutputStream(SYSTEM_LOG_FILE, true)) {
+                output.write(line.getBytes(StandardCharsets.UTF_8));
+            }
+        } catch (IOException ignored) {
+            // File logging is best effort diagnostic aid only.
         }
     }
 

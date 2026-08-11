@@ -42,8 +42,13 @@ LSPosed 默认作用域由 `res/values/arrays.xml` 声明，且 `MainHook` 在�
 ```
 
 系统侧保活门闩（`AccessibilityServiceEnforcer`）在 system_server 生命周期内常驻：它观察
-`Settings.Global` 中的保护开关与 `enabled_accessibility_services`，用户把模块进程划掉后仍能
-把本服务追加回启用列表。开关只由 system_server 的 `ContentObserver` 观察后统一写回，无轮询。
+ `Settings.Global` 中的保护开关与 `enabled_accessibility_services`，用户把模块进程划掉后仍能
+ 把本服务追加回启用列表。开关只由 system_server 的 `ContentObserver` 观察后统一写回，无轮询。
+
+system_server 侧的关键轨迹（hook 安装、receiver 注册、收到控制广播及其结果码）由
+ `AccessibilityServiceEnforcer`/`AccessibilityProtectionHooks` 追加写入
+ `/data/local/tmp/HyperDragShare/system-server.log`（system_server 直接落盘，不依赖
+ logcat 或 adb），便于实机仅凭文件排查保活门闩是否生效。
 
 主要文件职责：
 

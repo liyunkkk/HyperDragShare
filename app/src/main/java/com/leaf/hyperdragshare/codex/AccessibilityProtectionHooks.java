@@ -4,8 +4,15 @@ import android.content.Context;
 import android.os.Handler;
 import android.util.Log;
 
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.nio.charset.StandardCharsets;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Locale;
 
 import de.robv.android.xposed.XposedHelpers;
 import de.robv.android.xposed.XC_MethodHook;
@@ -18,6 +25,7 @@ import de.robv.android.xposed.XC_MethodHook;
  */
 final class AccessibilityProtectionHooks {
     private static final String TAG = "DragShare/Protection";
+    private static final String SYSTEM_LOG_FILE = "/data/local/tmp/HyperDragShare/system-server.log";
 
     private static final String SYSTEM_SERVER_CLASS = "com.android.server.SystemServer";
     private static final String TIMINGS_TRACE_AND_SLOG_CLASS =
@@ -29,10 +37,27 @@ final class AccessibilityProtectionHooks {
 
     private AccessibilityProtectionHooks() {}
 
+    private static void systemLog(String message) {
+        try {
+            File directory = new File("/data/local/tmp/HyperDragShare");
+            if (!directory.exists() && !directory.mkdirs()) {
+                return;
+            }
+            String line = new SimpleDateFormat("HH:mm:ss.SSS", Locale.US).format(new Date())
+                    + " [system_server] " + message + "\n";
+            try (FileOutputStream output = new FileOutputStream(SYSTEM_LOG_FILE, true)) {
+                output.write(line.getBytes(StandardCharsets.UTF_8));
+            }
+        } catch (IOException ignored) {
+            // File logging is best effort diagnostic aid only.
+        }
+    }
+
     /** Called from MainHook when packageName is "android". */
     static void install(ClassLoader classLoader) {
         if (classLoader == null) {
             Log.w(TAG, "no system_server class loader for accessibility protection");
+            systemLog("install(classLoader=null) 被调用，classLoader 为空");
             return;
         }
         try {
@@ -53,9 +78,12 @@ final class AccessibilityProtectionHooks {
                         }
                     });
             Log.i(TAG, "hooked SystemServer.startOtherServices");
+            systemLog("已 hook SystemServer.startOtherServices");
         } catch (Throwable failure) {
             Log.w(TAG, "unable to install accessibility protection hook: "
                     + failure.getClass().getSimpleName());
+            systemLog("安装 hook 失败: " + failure.getClass().getSimpleName()
+                    + ": " + failure.getMessage());
         }
     }
 
@@ -66,11 +94,13 @@ final class AccessibilityProtectionHooks {
         Context context = resolveSystemContext(systemServer);
         if (context == null) {
             Log.w(TAG, "SystemServer 已启动，但无法取得 system context");
+            systemLog("SystemServer 已启动但无法取得 system context，跳过");
             return;
         }
         Handler handler = resolveSystemBackgroundHandler(classLoader);
         if (handler == null) {
             Log.w(TAG, "无法取得 Android BackgroundThread，跳过无障碍保护");
+            systemLog("无法取得 BackgroundThread Handler，跳过无障碍保护");
             return;
         }
         AccessibilityServiceEnforcer enforcer = new AccessibilityServiceEnforcer(handler);
