@@ -432,13 +432,22 @@ final class AccessibilityServiceEnforcer {
             boolean requestedEnabled) {
         if (!isControlAction(action)
                 || !isControlCallerTrusted(context, ordered, protocolVersion, senderUid)) {
+            systemLog("控制请求被拒绝: action=" + action
+                    + " ordered=" + ordered
+                    + " protocol=" + protocolVersion
+                    + " senderUid=" + senderUid
+                    + " isControlAction=" + isControlAction(action)
+                    + " isControlCallerTrusted=" + isControlCallerTrusted(
+                    context, ordered, protocolVersion, senderUid));
             return AccessibilityProtectionProtocol.RESULT_REJECTED;
         }
         if (AccessibilityProtectionProtocol.ACTION_RECOVER.equals(action)) {
             if (!isEnforcementEnabled(context)) {
+                systemLog("恢复请求被拒: 保护开关未开启");
                 return AccessibilityProtectionProtocol.RESULT_UNAVAILABLE;
             }
             if (!isExpectedServiceTrusted(context)) {
+                systemLog("恢复请求被拒: 无障碍服务组件未通过签名钉扎校验");
                 return AccessibilityProtectionProtocol.RESULT_REJECTED;
             }
             return scheduleRuntimeRecovery(context)
@@ -446,6 +455,7 @@ final class AccessibilityServiceEnforcer {
                     : AccessibilityProtectionProtocol.RESULT_UNAVAILABLE;
         }
         if (requestedEnabled && !isExpectedServiceTrusted(context)) {
+            systemLog("开启请求被拒: 无障碍服务组件未通过签名钉扎校验 senderUid=" + senderUid);
             return AccessibilityProtectionProtocol.RESULT_REJECTED;
         }
         boolean stored;
@@ -456,11 +466,15 @@ final class AccessibilityServiceEnforcer {
                     requestedEnabled ? ENABLED : DISABLED);
         } catch (RuntimeException failure) {
             logFailure("无法写入无障碍保护开关", failure);
+            systemLog("写保护开关抛异常: " + failure.getClass().getSimpleName()
+                    + ": " + failure.getMessage());
             return AccessibilityProtectionProtocol.RESULT_UNAVAILABLE;
         }
         if (!stored) {
+            systemLog("写保护开关返回 false（Settings.Global 写入被拒绝）");
             return AccessibilityProtectionProtocol.RESULT_UNAVAILABLE;
         }
+        systemLog("保护开关写入成功 enabled=" + requestedEnabled);
         restoreBackoff.reset();
         reconcile(context, "user_control");
         Log.i(TAG, "无障碍保护开关已设置为 " + requestedEnabled);
@@ -903,13 +917,16 @@ final class AccessibilityServiceEnforcer {
                         AccessibilityProtectionProtocol.SIGNER_SETTING_NAME,
                         identity)) {
                     logFailure("无法钉扎模块 APK signer");
+                    systemLog("首次签名钉扎写入 Settings.Global 失败");
                     return false;
                 }
             } catch (RuntimeException failure) {
                 logFailure("无法钉扎模块 APK signer", failure);
+                systemLog("首次签名钉扎抛异常: " + failure.getClass().getSimpleName());
                 return false;
             }
             Log.i(TAG, "已钉扎模块 APK signer");
+            systemLog("首次签名钉扎成功，已写入 Global signer");
             return true;
         }
         boolean accepted = AccessibilityServiceMerge.isPinnedSignerAccepted(
@@ -919,6 +936,8 @@ final class AccessibilityServiceEnforcer {
                 signingInfo.hasMultipleSigners());
         if (!accepted) {
             logFailure("拒绝为 signer 不匹配的模块恢复无障碍权限");
+            systemLog("签名钉扎不匹配，拒绝恢复：pinned=" + pinnedSigner
+                    + " current=" + currentDigests);
         }
         return accepted;
     }

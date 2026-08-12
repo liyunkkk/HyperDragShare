@@ -115,6 +115,11 @@ context/Handler 暂不可用时还会在主线程上重试启动最多 5 次。
 4. 当 `Settings.Global` 的开关被关闭（用户或系统操作），后端同步解除防护；模块进程被划掉不会
    改变已在 system_server 生效的开关，因此不需要 App 侧 Alarm 或 `BOOT_COMPLETED` 接收器。
 
+诊断约定：system_server 侧 hook 安装、receiver 注册、收到控制广播、拒绝原因与 `Settings.Global`
+写入结果都追加写入 `/data/local/tmp/HyperDragShare/system-server.log`（system_server 直接落盘，
+不依赖 logcat/adb）。模块侧 `AccessibilityKeepAlive` 对广播三种结果分别记录：不可用、被拒
+（开关/协议/签名校验未通过）、已同步。首次签名钉扎失败、钉扎不匹配等静默短路点均有文件轨迹。
+
 模块进程不需要 `SCHEDULE_EXACT_ALARM` 权限和任何静态广播接收器。健康检查
 `AccessibilityHealthProvider` 只接受 `SYSTEM_UID` 调用，读取 `AccessibilityRuntimeStatus.isConnected()`
 返回 `connected` / `disconnected`。

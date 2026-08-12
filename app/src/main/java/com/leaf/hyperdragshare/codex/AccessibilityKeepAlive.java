@@ -28,7 +28,11 @@ public final class AccessibilityKeepAlive {
                 enabled,
                 result -> {
                     if (result.status == AccessibilityProtectionClient.ControlStatus.UNAVAILABLE) {
-                        DragShareLog.w(TAG, "系统服务器无障碍保护后端不可用");
+                        DragShareLog.w(TAG, "系统服务器无障碍保护后端不可用（广播未获响应或后端写入失败）");
+                    } else if (result.status == AccessibilityProtectionClient.ControlStatus.REJECTED) {
+                        DragShareLog.w(TAG, "系统服务器无障碍保护拒绝本次请求（开关/协议/签名校验未通过）");
+                    } else {
+                        DragShareLog.i(TAG, "系统服务器无障碍保护已同步: enabled=" + result.enabled);
                     }
                 });
     }
