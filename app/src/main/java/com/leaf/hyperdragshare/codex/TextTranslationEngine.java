@@ -14,16 +14,25 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 
 /**
- * Translation engine for the BigBang dictionary action, backed by an
- * OpenAI-compatible chat-completions endpoint. The language decision and
- * request/response construction are pure functions so they stay
- * unit-testable; the network call runs on the caller's worker thread.
+ * Translation engine for the BigBang dictionary action, backed by either an
+ * OpenAI-compatible chat-completions endpoint or the Anthropic Messages API.
+ * The URL, request and response construction are pure functions so they stay
+ * unit-testable; network calls run on the caller's worker thread.
  */
 public final class TextTranslationEngine {
     private static final String TAG = "DragShare/Translate";
     private static final String CHAT_COMPLETIONS_PATH = "/chat/completions";
+    private static final String MESSAGES_PATH = "/messages";
+    private static final String MODELS_PATH = "/models";
+    private static final String ANTHROPIC_VERSION = "2023-06-01";
+    private static final String AUTH_HEADER = "Authorization";
+    private static final String AUTH_PREFIX = "Bearer ";
+    private static final String X_API_KEY = "x-api-key";
     private static final int CONNECT_TIMEOUT_MILLIS = 8_000;
     private static final int READ_TIMEOUT_MILLIS = 30_000;
 
@@ -64,21 +73,26 @@ public final class TextTranslationEngine {
     }
 
     /**
-     * Builds the chat-completions URL for the given base URL, e.g.
-     * {@code https://api.openai.com/v1} becomes
-     * {@code https://api.openai.com/v1/chat/completions}.
+     * Builds the chat URL for the given base URL and API type. OpenAI becomes
+     * {@code {baseUrl}/chat/completions}; Claude becomes
+     * {@code {baseUrl}/messages}.
      */
-    public static String buildChatUrl(String baseUrl) {
-        String normalized = baseUrl == null || baseUrl.trim().isEmpty()
-                ? TranslationSettings.DEFAULT_BASE_URL
-                : baseUrl.trim();
-        while (normalized.endsWith("/")) {
-            normalized = normalized.substring(0, normalized.length() - 1);
+    public static String buildChatUrl(String baseUrl, int apiType) {
+        String normalized = trimTrailingSlashes(baseUrl);
+        if (apiType == TranslationSettings.API_TYPE_CLAUDE) {
+            return normalized.endsWith(MESSAGES_PATH)
+                    ? normalized
+                    : normalized + MESSAGES_PATH;
         }
-        if (normalized.endsWith("/chat/completions")) {
-            return normalized;
-        }
-        return normalized + CHAT_COMPLETIONS_PATH;
+        return normalized.endsWith(CHAT_COMPLETIONS_PATH)
+                ? normalized
+                : normalized + CHAT_COMPLETIONS_PATH;
+    }
+
+    /** Builds the model-list URL: {@code {baseUrl}/models}. */
+    public static String buildModelsUrl(String baseUrl) {
+        String normalized = trimTrailingSlashes(baseUrl);
+        return normalized.endsWith(MODELS_PATH) ? normalized : normalized + MODELS_PATH;
     }
 
     /** Names the target language in a human-readable way for the prompt. */
@@ -87,36 +101,76 @@ public final class TextTranslationEngine {
     }
 
     /**
-     * Builds the JSON request body for a chat-completions translation call.
+     * Builds the JSON request body for a translation call.
      */
-    public static String buildRequestJson(String model, String targetLanguage, String text)
+    public static String buildRequestJson(int apiType, String model, String targetLanguage,
+                                          String text) throws JSONException {
+        if (apiType == TranslationSettings.API_TYPE_CLAUDE) {
+            return buildClaudeRequestJson(model, targetLanguage, text);
+        }
+        return buildOpenAiRequestJson(model, targetLanguage, text);
+    }
+
+    private static String buildOpenAiRequestJson(String model, String targetLanguage, String text)
             throws JSONException {
         JSONObject body = new JSONObject();
         body.put("model", model);
         body.put("temperature", 0.2);
         JSONArray messages = new JSONArray();
-        JSONObject system = new JSONObject();
-        system.put("role", "system");
-        system.put("content", "You are a professional translator. Translate the user's text into "
-                + targetLanguageName(targetLanguage)
-                + ". Return only the translated text, without explanations or quotation marks.");
+        messages.put(systemMessage(targetLanguage));
         JSONObject user = new JSONObject();
         user.put("role", "user");
         user.put("content", text);
-        messages.put(system);
         messages.put(user);
         body.put("messages", messages);
         return body.toString();
     }
 
+    private static String buildClaudeRequestJson(String model, String targetLanguage, String text)
+            throws JSONException {
+        JSONObject body = new JSONObject();
+        body.put("model", model);
+        body.put("max_tokens", 1024);
+        body.put("temperature", 0.2);
+        body.put("system", systemPrompt(targetLanguage));
+        JSONArray messages = new JSONArray();
+        JSONObject user = new JSONObject();
+        user.put("role", "user");
+        user.put("content", text);
+        messages.put(user);
+        body.put("messages", messages);
+        return body.toString();
+    }
+
+    private static JSONObject systemMessage(String targetLanguage) throws JSONException {
+        JSONObject system = new JSONObject();
+        system.put("role", "system");
+        system.put("content", systemPrompt(targetLanguage));
+        return system;
+    }
+
+    private static String systemPrompt(String targetLanguage) {
+        return "You are a professional translator. Translate the user's text into "
+                + targetLanguageName(targetLanguage)
+                + ". Return only the translated text, without explanations or quotation marks.";
+    }
+
     /**
-     * Extracts the assistant message from a chat-completions response:
-     * {@code {"choices":[{"message":{"role":"assistant","content":"..."}}]}}.
+     * Extracts the translated text from a chat response.
+     * OpenAI: {@code {"choices":[{"message":{"content":"..."}}]}}.
+     * Claude: {@code {"content":[{"type":"text","text":"..."}]}}.
      */
-    public static String parseChatResponse(String responseBody) throws JSONException {
+    public static String parseChatResponse(int apiType, String responseBody) throws JSONException {
         if (responseBody == null || responseBody.isEmpty()) {
             throw new JSONException("empty translation response");
         }
+        if (apiType == TranslationSettings.API_TYPE_CLAUDE) {
+            return parseClaudeResponse(responseBody);
+        }
+        return parseOpenAiResponse(responseBody);
+    }
+
+    private static String parseOpenAiResponse(String responseBody) throws JSONException {
         JSONObject root = new JSONObject(responseBody);
         JSONArray choices = root.optJSONArray("choices");
         if (choices == null || choices.length() == 0) {
@@ -131,64 +185,157 @@ public final class TextTranslationEngine {
         return content.trim();
     }
 
+    private static String parseClaudeResponse(String responseBody) throws JSONException {
+        JSONObject root = new JSONObject(responseBody);
+        JSONArray content = root.optJSONArray("content");
+        if (content == null || content.length() == 0) {
+            throw new JSONException("missing content array");
+        }
+        StringBuilder builder = new StringBuilder();
+        for (int index = 0; index < content.length(); index++) {
+            JSONObject part = content.optJSONObject(index);
+            if (part == null) {
+                continue;
+            }
+            String text = part.optString("text", "");
+            if (!text.isEmpty()) {
+                builder.append(text);
+            }
+        }
+        String result = builder.toString().trim();
+        if (result.isEmpty()) {
+            throw new JSONException("empty translation result");
+        }
+        return result;
+    }
+
+    /** Parses a model-list response into a sorted list of model ids. */
+    public static List<String> parseModelsResponse(String responseBody) throws JSONException {
+        if (responseBody == null || responseBody.isEmpty()) {
+            throw new JSONException("empty models response");
+        }
+        JSONObject root = new JSONObject(responseBody);
+        JSONArray data = root.optJSONArray("data");
+        if (data == null || data.length() == 0) {
+            throw new JSONException("missing data array");
+        }
+        List<String> models = new ArrayList<>();
+        for (int index = 0; index < data.length(); index++) {
+            JSONObject item = data.optJSONObject(index);
+            if (item == null) {
+                continue;
+            }
+            String id = item.optString("id", "");
+            if (!id.isEmpty()) {
+                models.add(id);
+            }
+        }
+        if (models.isEmpty()) {
+            throw new JSONException("no model ids in response");
+        }
+        Collections.sort(models);
+        return models;
+    }
+
     /**
-     * Translates using the configured OpenAI-compatible endpoint. This is a
-     * blocking call and must run on a worker thread; it throws on any failure
-     * so the caller can surface a message.
+     * Translates using the configured endpoint. Blocking; must run on a worker
+     * thread. Throws on any failure so the caller can surface a message.
      */
     public static String translate(Context context, String text, TranslationSettings settings)
             throws Exception {
         String targetLanguage = resolveTargetLanguage(text, settings.target);
-        String url = buildChatUrl(settings.baseUrl);
-        String requestBody = buildRequestJson(settings.model, targetLanguage, text);
-        String responseBody = httpPost(url, settings.apiKey, requestBody);
+        String url = buildChatUrl(settings.baseUrl, settings.apiType);
+        String requestBody = buildRequestJson(settings.apiType, settings.model, targetLanguage, text);
+        String responseBody = httpPost(url, settings.apiType, settings.apiKey, requestBody);
         try {
-            return parseChatResponse(responseBody);
+            return parseChatResponse(settings.apiType, responseBody);
         } catch (JSONException malformed) {
             throw new IOException("translation response could not be parsed", malformed);
         }
     }
 
-    private static String httpPost(String url, String apiKey, String requestBody)
+    /**
+     * Fetches the model ids available from the configured endpoint. Blocking;
+     * must run on a worker thread.
+     */
+    public static List<String> fetchModels(TranslationSettings settings) throws Exception {
+        String url = buildModelsUrl(settings.baseUrl);
+        String responseBody = httpGet(url, settings.apiType, settings.apiKey);
+        try {
+            return parseModelsResponse(responseBody);
+        } catch (JSONException malformed) {
+            throw new IOException("models response could not be parsed", malformed);
+        }
+    }
+
+    /**
+     * Verifies that the endpoint answers with the configured key. Returns the
+     * number of available models on success; throws on any failure.
+     */
+    public static int testConnection(TranslationSettings settings) throws Exception {
+        return fetchModels(settings).size();
+    }
+
+    private static String httpPost(String url, int apiType, String apiKey, String requestBody)
             throws IOException {
         HttpURLConnection connection = null;
         try {
-            connection = (HttpURLConnection) new URL(url).openConnection();
+            connection = openConnection(url, apiType, apiKey);
             connection.setRequestMethod("POST");
-            connection.setConnectTimeout(CONNECT_TIMEOUT_MILLIS);
-            connection.setReadTimeout(READ_TIMEOUT_MILLIS);
             connection.setDoOutput(true);
-            connection.setRequestProperty("Content-Type", "application/json");
-            connection.setRequestProperty("Accept", "application/json");
-            if (apiKey != null && !apiKey.isEmpty()) {
-                connection.setRequestProperty("Authorization", "Bearer " + apiKey);
-            }
             byte[] payload = requestBody.getBytes(StandardCharsets.UTF_8);
             try (OutputStream output = connection.getOutputStream()) {
                 output.write(payload);
             }
-            int status = connection.getResponseCode();
-            InputStream input = status >= 200 && status < 300
-                    ? connection.getInputStream()
-                    : connection.getErrorStream();
-            if (status < 200 || status >= 300) {
-                String errorBody = readAll(input);
-                throw new IOException("translation API returned HTTP " + status + ": " + errorBody);
-            }
-            try (BufferedReader reader = new BufferedReader(
-                    new InputStreamReader(input, StandardCharsets.UTF_8))) {
-                StringBuilder builder = new StringBuilder();
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    builder.append(line);
-                }
-                return builder.toString();
-            }
+            return readResponse(connection);
         } finally {
             if (connection != null) {
                 connection.disconnect();
             }
         }
+    }
+
+    private static String httpGet(String url, int apiType, String apiKey) throws IOException {
+        HttpURLConnection connection = null;
+        try {
+            connection = openConnection(url, apiType, apiKey);
+            connection.setRequestMethod("GET");
+            return readResponse(connection);
+        } finally {
+            if (connection != null) {
+                connection.disconnect();
+            }
+        }
+    }
+
+    private static HttpURLConnection openConnection(String url, int apiType, String apiKey)
+            throws IOException {
+        HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
+        connection.setConnectTimeout(CONNECT_TIMEOUT_MILLIS);
+        connection.setReadTimeout(READ_TIMEOUT_MILLIS);
+        connection.setRequestProperty("Content-Type", "application/json");
+        connection.setRequestProperty("Accept", "application/json");
+        if (apiKey != null && !apiKey.isEmpty()) {
+            if (apiType == TranslationSettings.API_TYPE_CLAUDE) {
+                connection.setRequestProperty(X_API_KEY, apiKey);
+                connection.setRequestProperty("anthropic-version", ANTHROPIC_VERSION);
+            } else {
+                connection.setRequestProperty(AUTH_HEADER, AUTH_PREFIX + apiKey);
+            }
+        }
+        return connection;
+    }
+
+    private static String readResponse(HttpURLConnection connection) throws IOException {
+        int status = connection.getResponseCode();
+        InputStream input = status >= 200 && status < 300
+                ? connection.getInputStream()
+                : connection.getErrorStream();
+        if (status < 200 || status >= 300) {
+            String errorBody = readAll(input);
+            throw new IOException("translation API returned HTTP " + status + ": " + errorBody);
+        }
+        return readAll(input);
     }
 
     private static String readAll(InputStream input) throws IOException {
@@ -204,5 +351,15 @@ public final class TextTranslationEngine {
             }
             return builder.toString();
         }
+    }
+
+    private static String trimTrailingSlashes(String value) {
+        String normalized = value == null || value.trim().isEmpty()
+                ? TranslationSettings.DEFAULT_OPENAI_BASE_URL
+                : value.trim();
+        while (normalized.endsWith("/")) {
+            normalized = normalized.substring(0, normalized.length() - 1);
+        }
+        return normalized;
     }
 }

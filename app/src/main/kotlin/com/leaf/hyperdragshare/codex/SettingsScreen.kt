@@ -1837,11 +1837,34 @@ private fun TranslationPreferenceCard(context: Context) {
     var settings by remember { mutableStateOf(TranslationSettings.readLocal(context)) }
     var editingField by remember { mutableStateOf<TranslationField?>(null) }
     var draftValue by remember { mutableStateOf("") }
+    var testing by remember { mutableStateOf(false) }
+    var pickingModel by remember { mutableStateOf(false) }
+    var models by remember { mutableStateOf<List<String>>(emptyList()) }
+    var loadingModels by remember { mutableStateOf(false) }
+    var modelError by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
     val persist: (TranslationSettings) -> Unit = { next ->
         next.saveLocal(context)
         settings = next
     }
     Card(modifier = Modifier.padding(horizontal = 12.dp).padding(bottom = 12.dp)) {
+        OverlayDropdownPreference(
+            title = "API 类型",
+            summary = "OpenAI 兼容或 Anthropic Claude Messages 协议",
+            items = listOf("OpenAI 兼容", "Claude"),
+            selectedIndex = settings.apiType,
+            onSelectedIndexChange = { selected ->
+                persist(
+                    TranslationSettings(
+                        selected,
+                        settings.target,
+                        "",
+                        settings.apiKey,
+                        "",
+                    ),
+                )
+            },
+        )
         OverlayDropdownPreference(
             title = "目标语言",
             summary = "自动会按原文反译（中文→英文，其他→中文）",
@@ -1850,6 +1873,7 @@ private fun TranslationPreferenceCard(context: Context) {
             onSelectedIndexChange = { selected ->
                 persist(
                     TranslationSettings(
+                        settings.apiType,
                         selected,
                         settings.baseUrl,
                         settings.apiKey,
@@ -1882,11 +1906,112 @@ private fun TranslationPreferenceCard(context: Context) {
                 editingField = TranslationField.Model
             },
         )
+        ArrowPreference(
+            title = "拉取可用模型",
+            summary = "从当前 API 获取可用模型列表",
+            onClick = {
+                pickingModel = true
+                models = emptyList()
+                modelError = null
+                loadingModels = true
+                scope.launch(Dispatchers.IO) {
+                    val result = runCatching { TextTranslationEngine.fetchModels(settings) }
+                    withContext(Dispatchers.Main) {
+                        loadingModels = false
+                        result.onSuccess { models = it }
+                            .onFailure { modelError = it.message ?: "拉取失败" }
+                    }
+                }
+            },
+        )
+        ArrowPreference(
+            title = "测试 API 连接",
+            summary = if (testing) "测试中…" else "验证地址与 Key 是否可用",
+            onClick = {
+                if (testing) return@ArrowPreference
+                testing = true
+                scope.launch(Dispatchers.IO) {
+                    val result = runCatching { TextTranslationEngine.testConnection(settings) }
+                    withContext(Dispatchers.Main) {
+                        testing = false
+                        result.onSuccess { count ->
+                            Toast.makeText(
+                                context,
+                                "连接成功，可用模型 $count 个",
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                        }.onFailure { error ->
+                            Toast.makeText(
+                                context,
+                                "连接失败：${error.message ?: "未知错误"}",
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                        }
+                    }
+                }
+            },
+        )
+    }
+    if (pickingModel) {
+        AlertDialog(
+            onDismissRequest = { pickingModel = false },
+            title = { Text(text = "可用模型") },
+            text = {
+                when {
+                    loadingModels -> Text(text = "拉取中…")
+                    modelError != null -> Column {
+                        Text(text = "拉取失败：$modelError")
+                        TextButton(
+                            text = "重试",
+                            onClick = {
+                                modelError = null
+                                loadingModels = true
+                                scope.launch(Dispatchers.IO) {
+                                    val result = runCatching {
+                                        TextTranslationEngine.fetchModels(settings)
+                                    }
+                                    withContext(Dispatchers.Main) {
+                                        loadingModels = false
+                                        result.onSuccess { models = it }
+                                            .onFailure { modelError = it.message ?: "拉取失败" }
+                                    }
+                                }
+                            },
+                        )
+                    }
+                    models.isEmpty() -> Text(text = "没有可用模型")
+                    else -> LazyColumn(
+                        modifier = Modifier.height(320.dp),
+                    ) {
+                        items(models) { modelId ->
+                            TextButton(
+                                text = modelId,
+                                onClick = {
+                                    persist(
+                                        TranslationSettings(
+                                            settings.apiType,
+                                            settings.target,
+                                            settings.baseUrl,
+                                            settings.apiKey,
+                                            modelId,
+                                        ),
+                                    )
+                                    pickingModel = false
+                                },
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(text = "关闭", onClick = { pickingModel = false })
+            },
+        )
     }
     editingField?.let { field ->
         val (title, label) = when (field) {
-            TranslationField.BaseUrl -> "API 地址" to "https://api.openai.com/v1"
-            TranslationField.ApiKey -> "API Key" to "sk-…"
+            TranslationField.BaseUrl -> "API 地址" to "https://api.example.com/v1"
+            TranslationField.ApiKey -> "API Key" to "sk-… / 留空自行填写"
             TranslationField.Model -> "模型名称" to "gpt-4o-mini"
         }
         AlertDialog(
@@ -1901,10 +2026,13 @@ private fun TranslationPreferenceCard(context: Context) {
                         label = { Text(text = label) },
                     )
                     Text(
-                        text = if (field == TranslationField.BaseUrl) {
-                            "填 OpenAI 兼容服务的 base URL，例如 https://api.deepseek.com/v1；留空用默认值"
-                        } else {
-                            "按需填写，保存后用于字典翻译请求"
+                        text = when (field) {
+                            TranslationField.BaseUrl ->
+                                "OpenAI 兼容填 {base}/v1，Claude 填 {base}/v1；留空用该类型默认地址"
+                            TranslationField.ApiKey ->
+                                "留空时每次翻译前自行填写；保存后用于字典翻译请求"
+                            TranslationField.Model ->
+                                "留空用该类型默认模型，也可先“拉取可用模型”再选择"
                         },
                         fontSize = 12.sp,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
@@ -1918,13 +2046,16 @@ private fun TranslationPreferenceCard(context: Context) {
                         persist(
                             when (field) {
                                 TranslationField.BaseUrl -> TranslationSettings(
-                                    settings.target, draftValue, settings.apiKey, settings.model,
+                                    settings.apiType, settings.target, draftValue,
+                                    settings.apiKey, settings.model,
                                 )
                                 TranslationField.ApiKey -> TranslationSettings(
-                                    settings.target, settings.baseUrl, draftValue, settings.model,
+                                    settings.apiType, settings.target, settings.baseUrl,
+                                    draftValue, settings.model,
                                 )
                                 TranslationField.Model -> TranslationSettings(
-                                    settings.target, settings.baseUrl, settings.apiKey, draftValue,
+                                    settings.apiType, settings.target, settings.baseUrl,
+                                    settings.apiKey, draftValue,
                                 )
                             },
                         )
