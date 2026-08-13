@@ -144,6 +144,42 @@ class TextSegmentationActivity : ComponentActivity() {
         }
     }
 
+    /** Translates the selected text and rebuilds the word chips with the result. */
+    fun translateSelected(text: String) {
+        if (text.isBlank()) {
+            return
+        }
+        Toast.makeText(this, R.string.bigbang_translate_started, Toast.LENGTH_SHORT).show()
+        Thread({
+            try {
+                val translated = TextTranslationEngine.translate(
+                    this,
+                    text,
+                    TranslationSettings.readLocal(this),
+                )
+                runOnUiThread {
+                    if (!isFinishing && translated.isNotBlank()) {
+                        currentText = ""
+                        currentSegment = null
+                        boomChipPage?.prepareForReinit()
+                        segmentLocally(translated)
+                    }
+                }
+            } catch (error: Throwable) {
+                DragShareLog.w(TAG, "translation failed", error)
+                runOnUiThread {
+                    if (!isFinishing) {
+                        Toast.makeText(
+                            this,
+                            getString(R.string.bigbang_translate_failed, error.message ?: ""),
+                            Toast.LENGTH_LONG,
+                        ).show()
+                    }
+                }
+            }
+        }, "drag-share-translate").start()
+    }
+
     private fun updateLaunchPosition() {
         launchTouchX = intent.getIntExtra(EXTRA_TOUCH_X, -1)
         launchTouchY = intent.getIntExtra(EXTRA_TOUCH_Y, -1)

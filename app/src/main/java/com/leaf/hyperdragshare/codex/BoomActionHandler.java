@@ -209,6 +209,12 @@ public class BoomActionHandler implements CustomScrollView.OnScrollListener {
         }
     }
 
+    public void translate(String text) {
+        if (mBoomPage.mActivity instanceof TextSegmentationActivity) {
+            ((TextSegmentationActivity) mBoomPage.mActivity).translateSelected(text);
+        }
+    }
+
     private void share() {
         final String shareText = getSelectedText();
         Intent send = new Intent(Intent.ACTION_SEND);
@@ -246,7 +252,7 @@ public class BoomActionHandler implements CustomScrollView.OnScrollListener {
         dictView.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                search(getSelectedText(), SEARCH_DICTIONARY);
+                translate(getSelectedText());
             }
         });
         ImageView shareView = (ImageView) mSelectBar.findViewById(R.id.all_share);
@@ -285,7 +291,7 @@ public class BoomActionHandler implements CustomScrollView.OnScrollListener {
         topDictView.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                search(getSelectedText(), SEARCH_DICTIONARY);
+                translate(getSelectedText());
             }
         });
         ImageView topShareView = (ImageView) mFakeSelectBar.findViewById(R.id.all_share);

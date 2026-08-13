@@ -40,6 +40,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CheckCircleOutline
 import androidx.compose.material.icons.rounded.ErrorOutline
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -428,6 +430,13 @@ private fun MainPage(
                         },
                     )
                 }
+            }
+
+            item(key = "translation-title") {
+                SmallTitle(text = "文本翻译")
+            }
+            item(key = "translation-preferences") {
+                TranslationPreferenceCard(context)
             }
 
             item(key = "appearance-title") {
@@ -1820,6 +1829,99 @@ private fun drawableBitmap(drawable: Drawable?, squareSizePx: Int? = null): Bitm
         }
     } catch (_: Throwable) {
         null
+    }
+}
+
+@Composable
+private fun TranslationPreferenceCard(context: Context) {
+    var settings by remember { mutableStateOf(TranslationSettings.readLocal(context)) }
+    var editingEndpoint by remember { mutableStateOf(false) }
+    var draftEndpoint by remember { mutableStateOf(settings.apiEndpoint) }
+    val persist: (TranslationSettings) -> Unit = { next ->
+        next.saveLocal(context)
+        settings = next
+    }
+    Card(modifier = Modifier.padding(horizontal = 12.dp).padding(bottom = 12.dp)) {
+        OverlayDropdownPreference(
+            title = "翻译引擎",
+            summary = "文本分词页字典按钮使用的翻译来源",
+            items = listOf("在线 API", "本机 ML Kit", "自动（API 优先）"),
+            selectedIndex = settings.engine,
+            onSelectedIndexChange = { selected ->
+                persist(
+                    TranslationSettings(
+                        selected,
+                        settings.target,
+                        settings.apiEndpoint,
+                        settings.apiKey,
+                    ),
+                )
+            },
+        )
+        OverlayDropdownPreference(
+            title = "目标语言",
+            summary = "自动会按原文反译（中文→英文，其他→中文）",
+            items = listOf("自动反译", "中文", "英文"),
+            selectedIndex = settings.target,
+            onSelectedIndexChange = { selected ->
+                persist(
+                    TranslationSettings(
+                        settings.engine,
+                        selected,
+                        settings.apiEndpoint,
+                        settings.apiKey,
+                    ),
+                )
+            },
+        )
+        ArrowPreference(
+            title = "翻译 API 端点",
+            summary = settings.apiEndpoint,
+            onClick = {
+                draftEndpoint = settings.apiEndpoint
+                editingEndpoint = true
+            },
+        )
+    }
+    if (editingEndpoint) {
+        AlertDialog(
+            onDismissRequest = { editingEndpoint = false },
+            title = { Text(text = "翻译 API 端点") },
+            text = {
+                Column {
+                    OutlinedTextField(
+                        value = draftEndpoint,
+                        onValueChange = { draftEndpoint = it },
+                        singleLine = true,
+                        label = { Text(text = "https://…") },
+                    )
+                    Text(
+                        text = "留空使用默认 Google 翻译接口；也可填入兼容 translate_a/single 格式的地址",
+                        fontSize = 12.sp,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    text = "确定",
+                    onClick = {
+                        persist(
+                            TranslationSettings(
+                                settings.engine,
+                                settings.target,
+                                draftEndpoint,
+                                settings.apiKey,
+                            ),
+                        )
+                        editingEndpoint = false
+                    },
+                )
+            },
+            dismissButton = {
+                TextButton(text = "取消", onClick = { editingEndpoint = false })
+            },
+        )
     }
 }
 

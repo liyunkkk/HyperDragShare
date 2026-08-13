@@ -17,4 +17,6 @@
     <string name="bigbang_action_placeholder">该功能暂不可用</string>
     <string name="bigbang_pull_previous">加载上一段</string>
     <string name="bigbang_pull_next">加载下一段</string>
+    <string name="bigbang_translate_started">正在翻译…</string>
+    <string name="bigbang_translate_failed">翻译失败：%1$s</string>
 </resources>
