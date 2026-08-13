@@ -1835,29 +1835,13 @@ private fun drawableBitmap(drawable: Drawable?, squareSizePx: Int? = null): Bitm
 @Composable
 private fun TranslationPreferenceCard(context: Context) {
     var settings by remember { mutableStateOf(TranslationSettings.readLocal(context)) }
-    var editingEndpoint by remember { mutableStateOf(false) }
-    var draftEndpoint by remember { mutableStateOf(settings.apiEndpoint) }
+    var editingField by remember { mutableStateOf<TranslationField?>(null) }
+    var draftValue by remember { mutableStateOf("") }
     val persist: (TranslationSettings) -> Unit = { next ->
         next.saveLocal(context)
         settings = next
     }
     Card(modifier = Modifier.padding(horizontal = 12.dp).padding(bottom = 12.dp)) {
-        OverlayDropdownPreference(
-            title = "翻译引擎",
-            summary = "文本分词页字典按钮使用的翻译来源",
-            items = listOf("在线 API", "本机 ML Kit", "自动（API 优先）"),
-            selectedIndex = settings.engine,
-            onSelectedIndexChange = { selected ->
-                persist(
-                    TranslationSettings(
-                        selected,
-                        settings.target,
-                        settings.apiEndpoint,
-                        settings.apiKey,
-                    ),
-                )
-            },
-        )
         OverlayDropdownPreference(
             title = "目标语言",
             summary = "自动会按原文反译（中文→英文，其他→中文）",
@@ -1866,37 +1850,62 @@ private fun TranslationPreferenceCard(context: Context) {
             onSelectedIndexChange = { selected ->
                 persist(
                     TranslationSettings(
-                        settings.engine,
                         selected,
-                        settings.apiEndpoint,
+                        settings.baseUrl,
                         settings.apiKey,
+                        settings.model,
                     ),
                 )
             },
         )
         ArrowPreference(
-            title = "翻译 API 端点",
-            summary = settings.apiEndpoint,
+            title = "API 地址",
+            summary = settings.baseUrl,
             onClick = {
-                draftEndpoint = settings.apiEndpoint
-                editingEndpoint = true
+                draftValue = settings.baseUrl
+                editingField = TranslationField.BaseUrl
+            },
+        )
+        ArrowPreference(
+            title = "API Key",
+            summary = if (settings.apiKey.isEmpty()) "未设置" else "已设置（••••）",
+            onClick = {
+                draftValue = settings.apiKey
+                editingField = TranslationField.ApiKey
+            },
+        )
+        ArrowPreference(
+            title = "模型名称",
+            summary = settings.model,
+            onClick = {
+                draftValue = settings.model
+                editingField = TranslationField.Model
             },
         )
     }
-    if (editingEndpoint) {
+    editingField?.let { field ->
+        val (title, label) = when (field) {
+            TranslationField.BaseUrl -> "API 地址" to "https://api.openai.com/v1"
+            TranslationField.ApiKey -> "API Key" to "sk-…"
+            TranslationField.Model -> "模型名称" to "gpt-4o-mini"
+        }
         AlertDialog(
-            onDismissRequest = { editingEndpoint = false },
-            title = { Text(text = "翻译 API 端点") },
+            onDismissRequest = { editingField = null },
+            title = { Text(text = title) },
             text = {
                 Column {
                     OutlinedTextField(
-                        value = draftEndpoint,
-                        onValueChange = { draftEndpoint = it },
+                        value = draftValue,
+                        onValueChange = { draftValue = it },
                         singleLine = true,
-                        label = { Text(text = "https://…") },
+                        label = { Text(text = label) },
                     )
                     Text(
-                        text = "留空使用默认 Google 翻译接口；也可填入兼容 translate_a/single 格式的地址",
+                        text = if (field == TranslationField.BaseUrl) {
+                            "填 OpenAI 兼容服务的 base URL，例如 https://api.deepseek.com/v1；留空用默认值"
+                        } else {
+                            "按需填写，保存后用于字典翻译请求"
+                        },
                         fontSize = 12.sp,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     )
@@ -1907,23 +1916,30 @@ private fun TranslationPreferenceCard(context: Context) {
                     text = "确定",
                     onClick = {
                         persist(
-                            TranslationSettings(
-                                settings.engine,
-                                settings.target,
-                                draftEndpoint,
-                                settings.apiKey,
-                            ),
+                            when (field) {
+                                TranslationField.BaseUrl -> TranslationSettings(
+                                    settings.target, draftValue, settings.apiKey, settings.model,
+                                )
+                                TranslationField.ApiKey -> TranslationSettings(
+                                    settings.target, settings.baseUrl, draftValue, settings.model,
+                                )
+                                TranslationField.Model -> TranslationSettings(
+                                    settings.target, settings.baseUrl, settings.apiKey, draftValue,
+                                )
+                            },
                         )
-                        editingEndpoint = false
+                        editingField = null
                     },
                 )
             },
             dismissButton = {
-                TextButton(text = "取消", onClick = { editingEndpoint = false })
+                TextButton(text = "取消", onClick = { editingField = null })
             },
         )
     }
 }
+
+private enum class TranslationField { BaseUrl, ApiKey, Model }
 
 private fun copySettings(
     current: DragShareSettings,

@@ -4,6 +4,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import org.json.JSONObject;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.RobolectricTestRunner;
@@ -54,49 +55,79 @@ public class TextTranslationEngineTest {
     }
 
     @Test
-    public void buildApiUrlEncodesQueryAndTarget() throws Exception {
-        String url = TextTranslationEngine.buildApiUrl(
-                "https://example.com/translate",
-                "zh",
-                "hello world");
-        assertTrue(url.startsWith("https://example.com/translate?sl=auto&tl=zh&dt=t&q=hello+world"));
+    public void buildChatUrlAppendsPathToBaseUrl() {
+        assertEquals(
+                "https://api.example.com/v1/chat/completions",
+                TextTranslationEngine.buildChatUrl("https://api.example.com/v1"));
     }
 
     @Test
-    public void buildApiUrlFallsBackToDefaultEndpoint() throws Exception {
-        String url = TextTranslationEngine.buildApiUrl("", "en", "x");
-        assertTrue(url.startsWith(TranslationSettings.DEFAULT_API_ENDPOINT + "?"));
-        assertTrue(url.contains("tl=en"));
+    public void buildChatUrlHandlesTrailingSlash() {
+        assertEquals(
+                "https://api.example.com/v1/chat/completions",
+                TextTranslationEngine.buildChatUrl("https://api.example.com/v1/"));
     }
 
     @Test
-    public void buildApiUrlHandlesExistingQueryParam() throws Exception {
-        String url = TextTranslationEngine.buildApiUrl(
-                "https://example.com/translate?client=gtx",
-                "en",
-                "x");
-        assertTrue(url.startsWith("https://example.com/translate?client=gtx&sl=auto"));
+    public void buildChatUrlKeepsExistingCompletionsPath() {
+        assertEquals(
+                "https://api.example.com/v1/chat/completions",
+                TextTranslationEngine.buildChatUrl("https://api.example.com/v1/chat/completions"));
     }
 
     @Test
-    public void parseApiResponseJoinsSentences() throws Exception {
-        String json = "[[[\"Hello\",\"你好\",null,null,1],[\" world\",\" 世界\",null,null,1]],null,\"en\"]";
-        assertEquals("Hello world", TextTranslationEngine.parseApiResponse(json));
+    public void buildChatUrlFallsBackToDefaultBase() {
+        assertTrue(
+                TextTranslationEngine.buildChatUrl("")
+                        .startsWith(TranslationSettings.DEFAULT_BASE_URL + "/chat/completions"));
     }
 
     @Test
-    public void parseApiResponseHandlesSingleSentence() throws Exception {
-        String json = "[[[\"Bonjour\",\"你好\",null,null,1]],null,\"fr\"]";
-        assertEquals("Bonjour", TextTranslationEngine.parseApiResponse(json));
+    public void buildRequestJsonContainsModelMessagesAndTarget() throws Exception {
+        String json = TextTranslationEngine.buildRequestJson("my-model", "en", "你好");
+        JSONObject body = new JSONObject(json);
+        assertEquals("my-model", body.getString("model"));
+        assertEquals(2, body.getJSONArray("messages").length());
+        assertTrue(body.getJSONArray("messages").getJSONObject(0).getString("content")
+                .contains("English"));
+        assertEquals(
+                "你好",
+                body.getJSONArray("messages").getJSONObject(1).getString("content"));
+    }
+
+    @Test
+    public void buildRequestJsonNamesChineseTarget() throws Exception {
+        String json = TextTranslationEngine.buildRequestJson("m", "zh", "hello");
+        JSONObject body = new JSONObject(json);
+        assertTrue(body.getJSONArray("messages").getJSONObject(0).getString("content")
+                .contains("Chinese"));
+    }
+
+    @Test
+    public void parseChatResponseExtractsAssistantMessage() throws Exception {
+        String json = "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"Hello world\"}}]}";
+        assertEquals("Hello world", TextTranslationEngine.parseChatResponse(json));
+    }
+
+    @Test
+    public void parseChatResponseTrimsWhitespace() throws Exception {
+        String json = "{\"choices\":[{\"message\":{\"content\":\"  Bonjour  \"}}]}";
+        assertEquals("Bonjour", TextTranslationEngine.parseChatResponse(json));
     }
 
     @Test(expected = Exception.class)
-    public void parseApiResponseRejectsEmptyBody() throws Exception {
-        TextTranslationEngine.parseApiResponse("");
+    public void parseChatResponseRejectsEmptyBody() throws Exception {
+        TextTranslationEngine.parseChatResponse("");
     }
 
     @Test(expected = Exception.class)
-    public void parseApiResponseRejectsMissingSentences() throws Exception {
-        TextTranslationEngine.parseApiResponse("{\"foo\":1}");
+    public void parseChatResponseRejectsMissingChoices() throws Exception {
+        TextTranslationEngine.parseChatResponse("{\"foo\":1}");
+    }
+
+    @Test(expected = Exception.class)
+    public void parseChatResponseRejectsEmptyContent() throws Exception {
+        TextTranslationEngine.parseChatResponse(
+                "{\"choices\":[{\"message\":{\"content\":\"   \"}}]}");
     }
 }

@@ -4,31 +4,28 @@ import android.content.Context;
 
 import org.json.JSONArray;
 import org.json.JSONException;
+import org.json.JSONObject;
 
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 
 /**
- * Translation engine for the BigBang dictionary action. The language decision
- * and API URL construction are pure functions so they stay unit-testable; the
- * network and ML Kit paths run on the caller's worker thread.
+ * Translation engine for the BigBang dictionary action, backed by an
+ * OpenAI-compatible chat-completions endpoint. The language decision and
+ * request/response construction are pure functions so they stay
+ * unit-testable; the network call runs on the caller's worker thread.
  */
 public final class TextTranslationEngine {
     private static final String TAG = "DragShare/Translate";
-    private static final String PARAM_SL = "sl";
-    private static final String PARAM_TL = "tl";
-    private static final String PARAM_QT = "dt";
-    private static final String PARAM_Q = "q";
-    private static final String DT_VALUE = "t";
-    private static final String SL_AUTO = "auto";
+    private static final String CHAT_COMPLETIONS_PATH = "/chat/completions";
     private static final int CONNECT_TIMEOUT_MILLIS = 8_000;
-    private static final int READ_TIMEOUT_MILLIS = 12_000;
+    private static final int READ_TIMEOUT_MILLIS = 30_000;
 
     private TextTranslationEngine() {}
 
@@ -66,100 +63,118 @@ public final class TextTranslationEngine {
         return false;
     }
 
-    /** Builds the request URL for the translate_a/single style endpoint. */
-    public static String buildApiUrl(String endpoint, String targetLanguage, String text) {
-        String normalized = endpoint == null || endpoint.trim().isEmpty()
-                ? TranslationSettings.DEFAULT_API_ENDPOINT
-                : endpoint.trim();
-        try {
-            return normalized
-                    + (normalized.contains("?") ? "&" : "?")
-                    + PARAM_SL + "=" + SL_AUTO
-                    + "&" + PARAM_TL + "=" + targetLanguage
-                    + "&" + PARAM_QT + "=" + DT_VALUE
-                    + "&" + PARAM_Q + "=" + URLEncoder.encode(text, "UTF-8");
-        } catch (IOException impossible) {
-            throw new IllegalStateException("UTF-8 is always available", impossible);
+    /**
+     * Builds the chat-completions URL for the given base URL, e.g.
+     * {@code https://api.openai.com/v1} becomes
+     * {@code https://api.openai.com/v1/chat/completions}.
+     */
+    public static String buildChatUrl(String baseUrl) {
+        String normalized = baseUrl == null || baseUrl.trim().isEmpty()
+                ? TranslationSettings.DEFAULT_BASE_URL
+                : baseUrl.trim();
+        while (normalized.endsWith("/")) {
+            normalized = normalized.substring(0, normalized.length() - 1);
         }
+        if (normalized.endsWith("/chat/completions")) {
+            return normalized;
+        }
+        return normalized + CHAT_COMPLETIONS_PATH;
+    }
+
+    /** Names the target language in a human-readable way for the prompt. */
+    public static String targetLanguageName(String targetLanguage) {
+        return "zh".equals(targetLanguage) ? "Chinese" : "English";
     }
 
     /**
-     * Parses a translate_a/single response into the joined translation.
-     * The payload is {@code [[["text","source",...],...], null, ...]}.
+     * Builds the JSON request body for a chat-completions translation call.
      */
-    public static String parseApiResponse(String responseBody) throws JSONException {
+    public static String buildRequestJson(String model, String targetLanguage, String text)
+            throws JSONException {
+        JSONObject body = new JSONObject();
+        body.put("model", model);
+        body.put("temperature", 0.2);
+        JSONArray messages = new JSONArray();
+        JSONObject system = new JSONObject();
+        system.put("role", "system");
+        system.put("content", "You are a professional translator. Translate the user's text into "
+                + targetLanguageName(targetLanguage)
+                + ". Return only the translated text, without explanations or quotation marks.");
+        JSONObject user = new JSONObject();
+        user.put("role", "user");
+        user.put("content", text);
+        messages.put(system);
+        messages.put(user);
+        body.put("messages", messages);
+        return body.toString();
+    }
+
+    /**
+     * Extracts the assistant message from a chat-completions response:
+     * {@code {"choices":[{"message":{"role":"assistant","content":"..."}}]}}.
+     */
+    public static String parseChatResponse(String responseBody) throws JSONException {
         if (responseBody == null || responseBody.isEmpty()) {
             throw new JSONException("empty translation response");
         }
-        JSONArray root = new JSONArray(responseBody);
-        JSONArray sentences = root.optJSONArray(0);
-        if (sentences == null) {
-            throw new JSONException("missing sentence array");
+        JSONObject root = new JSONObject(responseBody);
+        JSONArray choices = root.optJSONArray("choices");
+        if (choices == null || choices.length() == 0) {
+            throw new JSONException("missing choices array");
         }
-        StringBuilder builder = new StringBuilder();
-        for (int index = 0; index < sentences.length(); index++) {
-            JSONArray sentence = sentences.optJSONArray(index);
-            if (sentence == null || sentence.length() == 0) {
-                continue;
-            }
-            String translated = sentence.optString(0);
-            if (translated != null && !translated.isEmpty()) {
-                builder.append(translated);
-            }
-        }
-        String result = builder.toString().trim();
-        if (result.isEmpty()) {
+        JSONObject choice = choices.optJSONObject(0);
+        JSONObject message = choice == null ? null : choice.optJSONObject("message");
+        String content = message == null ? null : message.optString("content", "");
+        if (content == null || content.trim().isEmpty()) {
             throw new JSONException("empty translation result");
         }
-        return result;
+        return content.trim();
     }
 
     /**
-     * Translates using the configured engine preference. This is a blocking
-     * call and must run on a worker thread; it throws on any failure so the
-     * caller can surface a message.
+     * Translates using the configured OpenAI-compatible endpoint. This is a
+     * blocking call and must run on a worker thread; it throws on any failure
+     * so the caller can surface a message.
      */
     public static String translate(Context context, String text, TranslationSettings settings)
             throws Exception {
         String targetLanguage = resolveTargetLanguage(text, settings.target);
-        if (settings.engine == TranslationSettings.ENGINE_ML_KIT) {
-            return translateWithMlKit(context, text, targetLanguage);
-        }
-        if (settings.engine == TranslationSettings.ENGINE_AUTO) {
-            try {
-                return translateWithApi(text, targetLanguage, settings);
-            } catch (Exception apiFailure) {
-                DragShareLog.w(TAG, "API translation failed, falling back to on-device", apiFailure);
-                return translateWithMlKit(context, text, targetLanguage);
-            }
-        }
-        return translateWithApi(text, targetLanguage, settings);
-    }
-
-    private static String translateWithApi(String text, String targetLanguage,
-                                           TranslationSettings settings) throws Exception {
-        String url = buildApiUrl(settings.apiEndpoint, targetLanguage, text);
-        String body = httpGet(url);
+        String url = buildChatUrl(settings.baseUrl);
+        String requestBody = buildRequestJson(settings.model, targetLanguage, text);
+        String responseBody = httpPost(url, settings.apiKey, requestBody);
         try {
-            return parseApiResponse(body);
+            return parseChatResponse(responseBody);
         } catch (JSONException malformed) {
             throw new IOException("translation response could not be parsed", malformed);
         }
     }
 
-    private static String httpGet(String url) throws IOException {
+    private static String httpPost(String url, String apiKey, String requestBody)
+            throws IOException {
         HttpURLConnection connection = null;
         try {
             connection = (HttpURLConnection) new URL(url).openConnection();
-            connection.setRequestMethod("GET");
+            connection.setRequestMethod("POST");
             connection.setConnectTimeout(CONNECT_TIMEOUT_MILLIS);
             connection.setReadTimeout(READ_TIMEOUT_MILLIS);
+            connection.setDoOutput(true);
+            connection.setRequestProperty("Content-Type", "application/json");
             connection.setRequestProperty("Accept", "application/json");
-            int status = connection.getResponseCode();
-            if (status < 200 || status >= 300) {
-                throw new IOException("translation API returned HTTP " + status);
+            if (apiKey != null && !apiKey.isEmpty()) {
+                connection.setRequestProperty("Authorization", "Bearer " + apiKey);
             }
-            InputStream input = connection.getInputStream();
+            byte[] payload = requestBody.getBytes(StandardCharsets.UTF_8);
+            try (OutputStream output = connection.getOutputStream()) {
+                output.write(payload);
+            }
+            int status = connection.getResponseCode();
+            InputStream input = status >= 200 && status < 300
+                    ? connection.getInputStream()
+                    : connection.getErrorStream();
+            if (status < 200 || status >= 300) {
+                String errorBody = readAll(input);
+                throw new IOException("translation API returned HTTP " + status + ": " + errorBody);
+            }
             try (BufferedReader reader = new BufferedReader(
                     new InputStreamReader(input, StandardCharsets.UTF_8))) {
                 StringBuilder builder = new StringBuilder();
@@ -176,9 +191,18 @@ public final class TextTranslationEngine {
         }
     }
 
-    private static String translateWithMlKit(Context context, String text, String targetLanguage)
-            throws Exception {
-        MlKitTranslateBridge bridge = new MlKitTranslateBridge();
-        return bridge.translate(context, text, targetLanguage);
+    private static String readAll(InputStream input) throws IOException {
+        if (input == null) {
+            return "";
+        }
+        try (BufferedReader reader = new BufferedReader(
+                new InputStreamReader(input, StandardCharsets.UTF_8))) {
+            StringBuilder builder = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) {
+                builder.append(line);
+            }
+            return builder.toString();
+        }
     }
 }

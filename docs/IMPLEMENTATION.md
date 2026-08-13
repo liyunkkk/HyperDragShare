@@ -86,7 +86,7 @@ system_server 侧的关键轨迹（hook 安装、receiver 注册、收到控制�
 | `ShareLauncher.java` | 构造并启动显式 ACTION_SEND |
 | `LocalImageSaver.java` | 将图片保存到系统 Pictures 集合并生成时间文件名 |
 | `ImageOcrEngine.java` | ML Kit 离线文字识别、单例识别器和可单测的缩放边界纯函数 |
-| `TranslationSettings.java`、`TextTranslationEngine.java`、`MlKitTranslateBridge.java` | 分词页词典翻译设置、在线 API 纯函数与阻塞执行、ML Kit 离线翻译桥接 |
+| `TranslationSettings.java`、`TextTranslationEngine.java` | 分词页词典翻译设置与 OpenAI 兼容 chat-completions 翻译调用 |
 
 ## 3. system_server 保活门闩
 
@@ -283,11 +283,13 @@ DecorView。入场和退场动画直接作用于 DecorView，因此 Card 内容�
 圆角瓷片上并统一使用白色图案；圆角和图案内缩沿用原有内置应用图标比例。现代菜单不再显示目标名称的首个字。分词页运行在模块进程，使用本地 `cppjieba` 词典
 将文字拆成可选词块，支持按词块复制或通过系统分享所选文本，不会把捕获内容发送到网络服务。
 
-分词页的词典按钮（`multi_select_bar.xml#all_dict`）默认打开 `BigBang` 的本地词典搜索，改为页内翻译：点击后在后台线程用 `TextTranslationEngine` 翻译所选文本，成功后通过
-`prepareForReinit()` + `segmentLocally()` 在同一页面用译文重建分词 chips，等效于替换原文。翻译引擎按 `TranslationSettings`（独立于 `DragShareSettings`，同一
-`drag_share_settings` 文件）选择来源：在线 API 默认使用 Google `translate_a/single` 端点（GET，8s/12s 超时），ML Kit 离线翻译使用未打包模型
-`com.google.mlkit:translate`（按需下载）；"自动"先走 API、失败回退 ML Kit。目标语言默认自动反译：含 CJK 的文本译为英文，其他语言译为中文，也可在设置中固定中文或英文。
-失败时不改变原分词，仅以 toast 提示；网络请求只在模块进程的 BigBang 翻译路径使用，捕获内容本身仍不发往任何服务。`SEARCH_DICTIONARY` 常量保留但普通路径不再调用，搜索按钮仍走 `SEARCH_WEB` 打开浏览器。
+ 分词页的词典按钮（`multi_select_bar.xml#all_dict`）默认打开 `BigBang` 的本地词典搜索，改为页内翻译：点击后在后台线程用 `TextTranslationEngine` 翻译所选文本，成功后通过
+ `prepareForReinit()` + `segmentLocally()` 在同一页面用译文重建分词 chips，等效于替换原文。翻译调用 OpenAI 兼容的 `POST {baseUrl}/chat/completions` 接口，配置由
+ `TranslationSettings`（独立于 `DragShareSettings`，同一 `drag_share_settings` 文件）保存：API 地址、API Key、模型名称和目标语言，均可从设置页的"文本翻译"卡片修改，
+ 地址留空时默认 `https://api.openai.com/v1`，模型默认 `gpt-4o-mini`。请求体使用 system 提示词限定目标语言并要求只返回译文，解析 `choices[0].message.content`；
+ 目标语言默认自动反译：含 CJK 的文本译为英文，其他语言译为中文，也可在设置中固定中文或英文。APK 不再打包 ML Kit 翻译依赖，仅保留文字识别
+ （`text-recognition-chinese`）。失败时不改变原分词，仅以 toast 提示；网络请求只在模块进程的 BigBang 翻译路径使用，捕获内容本身仍不发往任何服务。
+ `SEARCH_DICTIONARY` 常量保留但普通路径不再调用，搜索按钮仍走 `SEARCH_WEB` 打开浏览器。
 
 命中判断使用每个菜单项的屏幕坐标。手指进入线性菜单对应滚动轴两端的热区后，主线程每约 16 ms
 按当前进入深度滚动：刚进入热区时为设定速度的 `20%`，随后按深度平方缓入加速，距离物理屏幕边缘
