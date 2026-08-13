@@ -286,10 +286,10 @@ DecorView。入场和退场动画直接作用于 DecorView，因此 Card 内容�
  分词页的词典按钮（`multi_select_bar.xml#all_dict`）默认打开 `BigBang` 的本地词典搜索，改为页内翻译：点击后在后台线程用 `TextTranslationEngine` 翻译所选文本，成功后通过
  `prepareForReinit()` + `segmentLocally()` 在同一页面用译文重建分词 chips，等效于替换原文。翻译调用大模型接口，按 API 类型分两种协议：OpenAI 兼容用
  `POST {baseUrl}/chat/completions`，Claude 用 Anthropic Messages `POST {baseUrl}/messages`（`x-api-key` + `anthropic-version` 头，`max_tokens`/`system` 字段），解析各自响应中的文本内容。配置由
- `TranslationSettings`（独立于 `DragShareSettings`，同一 `drag_share_settings` 文件）保存：API 类型、API 地址、API Key、模型名称和目标语言，均可从设置页的"文本翻译"卡片修改，
- 地址/模型留空时按类型使用默认值（OpenAI `https://api.openai.com/v1`/`gpt-4o-mini`，Claude `https://api.anthropic.com/v1`/`claude-3-5-haiku-latest`），Key 留空则完全由用户自行填写。
- 请求体使用 system 提示词限定目标语言并要求只返回译文；目标语言默认自动反译：含 CJK 的文本译为英文，其他语言译为中文，也可在设置中固定中文或英文。设置页还提供"拉取可用模型"（GET `{baseUrl}/models`
- 解析 `data[].id` 供选择）和"测试 API 连接"（拉取模型数即视为连通）两个验证入口。APK 不打包 ML Kit 翻译依赖，仅保留文字识别
+ `TranslationSettings`（独立于 `DragShareSettings`，同一 `drag_share_settings` 文件）保存：API 类型、API 地址、API Key、模型名称和可自定义的"AI 翻译官"角色，均可从设置页的"文本翻译"卡片修改。
+ "翻译官角色"与"角色提示词"两项让用户定义翻译官的名称和 system 提示词，从而把翻译限定到任意语境/行业（如医学、法律、技术），提示词留空时回退到内置翻译指令（默认目标语言自动反译：含 CJK 的文本译为英文，其他语言译为中文）；
+ 模型名称留空时不显示默认实例名，请求时使用该类型默认模型（OpenAI `gpt-4o-mini`，Claude `claude-3-5-haiku-latest`），API 地址留空时按类型使用默认地址（OpenAI `https://api.openai.com/v1`，Claude `https://api.anthropic.com/v1`），Key 留空则完全由用户自行填写。
+ 设置页还提供"拉取可用模型"（GET `{baseUrl}/models` 解析 `data[].id`，以网格阵列展示供选择）和"测试 API 连接"（拉取模型数即视为连通，成功/失败以对话框明确提示）两个验证入口。APK 不打包 ML Kit 翻译依赖，仅保留文字识别
  （`text-recognition-chinese`）。失败时不改变原分词，仅以 toast 提示；网络请求只在模块进程的 BigBang 翻译路径使用，捕获内容本身仍不发往任何服务。
  `SEARCH_DICTIONARY` 常量保留但普通路径不再调用，搜索按钮仍走 `SEARCH_WEB` 打开浏览器。
 

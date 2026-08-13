@@ -35,6 +35,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
@@ -1838,6 +1841,7 @@ private fun TranslationPreferenceCard(context: Context) {
     var editingField by remember { mutableStateOf<TranslationField?>(null) }
     var draftValue by remember { mutableStateOf("") }
     var testing by remember { mutableStateOf(false) }
+    var testResult by remember { mutableStateOf<Pair<Boolean, String>?>(null) }
     var pickingModel by remember { mutableStateOf(false) }
     var models by remember { mutableStateOf<List<String>>(emptyList()) }
     var loadingModels by remember { mutableStateOf(false) }
@@ -1860,26 +1864,27 @@ private fun TranslationPreferenceCard(context: Context) {
                         settings.target,
                         "",
                         settings.apiKey,
-                        "",
+                        settings.model,
+                        settings.roleName,
+                        settings.rolePrompt,
                     ),
                 )
             },
         )
-        OverlayDropdownPreference(
-            title = "目标语言",
-            summary = "自动会按原文反译（中文→英文，其他→中文）",
-            items = listOf("自动反译", "中文", "英文"),
-            selectedIndex = settings.target,
-            onSelectedIndexChange = { selected ->
-                persist(
-                    TranslationSettings(
-                        settings.apiType,
-                        selected,
-                        settings.baseUrl,
-                        settings.apiKey,
-                        settings.model,
-                    ),
-                )
+        ArrowPreference(
+            title = "翻译官角色",
+            summary = settings.roleName,
+            onClick = {
+                draftValue = settings.roleName
+                editingField = TranslationField.RoleName
+            },
+        )
+        ArrowPreference(
+            title = "角色提示词",
+            summary = settings.rolePrompt.ifEmpty { "自定义翻译指令，留空使用默认翻译官" },
+            onClick = {
+                draftValue = settings.rolePrompt
+                editingField = TranslationField.RolePrompt
             },
         )
         ArrowPreference(
@@ -1900,7 +1905,7 @@ private fun TranslationPreferenceCard(context: Context) {
         )
         ArrowPreference(
             title = "模型名称",
-            summary = settings.model,
+            summary = settings.model.ifEmpty { "未设置" },
             onClick = {
                 draftValue = settings.model
                 editingField = TranslationField.Model
@@ -1935,17 +1940,9 @@ private fun TranslationPreferenceCard(context: Context) {
                     withContext(Dispatchers.Main) {
                         testing = false
                         result.onSuccess { count ->
-                            Toast.makeText(
-                                context,
-                                "连接成功，可用模型 $count 个",
-                                Toast.LENGTH_SHORT,
-                            ).show()
+                            testResult = true to "连接成功，可用模型 $count 个"
                         }.onFailure { error ->
-                            Toast.makeText(
-                                context,
-                                "连接失败：${error.message ?: "未知错误"}",
-                                Toast.LENGTH_SHORT,
-                            ).show()
+                            testResult = false to "连接失败：${error.message ?: "未知错误"}"
                         }
                     }
                 }
@@ -1980,12 +1977,17 @@ private fun TranslationPreferenceCard(context: Context) {
                         )
                     }
                     models.isEmpty() -> Text(text = "没有可用模型")
-                    else -> LazyColumn(
-                        modifier = Modifier.height(320.dp),
+                    else -> LazyVerticalGrid(
+                        columns = GridCells.Adaptive(120.dp),
+                        modifier = Modifier
+                            .height(320.dp)
+                            .fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        items(models) { modelId ->
-                            TextButton(
-                                text = modelId,
+                        gridItems(models) { modelId ->
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
                                 onClick = {
                                     persist(
                                         TranslationSettings(
@@ -1994,11 +1996,21 @@ private fun TranslationPreferenceCard(context: Context) {
                                             settings.baseUrl,
                                             settings.apiKey,
                                             modelId,
+                                            settings.roleName,
+                                            settings.rolePrompt,
                                         ),
                                     )
                                     pickingModel = false
                                 },
-                            )
+                            ) {
+                                Text(
+                                    text = modelId,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 12.dp),
+                                    fontSize = 13.sp,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
                         }
                     }
                 }
@@ -2008,11 +2020,23 @@ private fun TranslationPreferenceCard(context: Context) {
             },
         )
     }
+    testResult?.let { (success, message) ->
+        AlertDialog(
+            onDismissRequest = { testResult = null },
+            title = { Text(text = if (success) "连接成功" else "连接失败") },
+            text = { Text(text = message) },
+            confirmButton = {
+                TextButton(text = "关闭", onClick = { testResult = null })
+            },
+        )
+    }
     editingField?.let { field ->
         val (title, label) = when (field) {
+            TranslationField.RoleName -> "翻译官角色" to "角色名称"
+            TranslationField.RolePrompt -> "角色提示词" to "翻译指令"
             TranslationField.BaseUrl -> "API 地址" to "https://api.example.com/v1"
             TranslationField.ApiKey -> "API Key" to "sk-… / 留空自行填写"
-            TranslationField.Model -> "模型名称" to "gpt-4o-mini"
+            TranslationField.Model -> "模型名称" to "模型 ID"
         }
         AlertDialog(
             onDismissRequest = { editingField = null },
@@ -2022,17 +2046,22 @@ private fun TranslationPreferenceCard(context: Context) {
                     OutlinedTextField(
                         value = draftValue,
                         onValueChange = { draftValue = it },
-                        singleLine = true,
+                        singleLine = field != TranslationField.RolePrompt,
+                        minLines = if (field == TranslationField.RolePrompt) 3 else 1,
                         label = { Text(text = label) },
                     )
                     Text(
                         text = when (field) {
+                            TranslationField.RoleName ->
+                                "给翻译官起个名字，例如“医学翻译官”“法律翻译官”"
+                            TranslationField.RolePrompt ->
+                                "写下你希望 AI 翻译官扮演的角色与翻译要求，可指定语境、行业术语与目标语言；留空使用默认翻译指令"
                             TranslationField.BaseUrl ->
                                 "OpenAI 兼容填 {base}/v1，Claude 填 {base}/v1；留空用该类型默认地址"
                             TranslationField.ApiKey ->
                                 "留空时每次翻译前自行填写；保存后用于字典翻译请求"
                             TranslationField.Model ->
-                                "留空用该类型默认模型，也可先“拉取可用模型”再选择"
+                                "留空使用该类型默认模型，也可先“拉取可用模型”再选择"
                         },
                         fontSize = 12.sp,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
@@ -2045,17 +2074,30 @@ private fun TranslationPreferenceCard(context: Context) {
                     onClick = {
                         persist(
                             when (field) {
+                                TranslationField.RoleName -> TranslationSettings(
+                                    settings.apiType, settings.target, settings.baseUrl,
+                                    settings.apiKey, settings.model, draftValue,
+                                    settings.rolePrompt,
+                                )
+                                TranslationField.RolePrompt -> TranslationSettings(
+                                    settings.apiType, settings.target, settings.baseUrl,
+                                    settings.apiKey, settings.model, settings.roleName,
+                                    draftValue,
+                                )
                                 TranslationField.BaseUrl -> TranslationSettings(
                                     settings.apiType, settings.target, draftValue,
-                                    settings.apiKey, settings.model,
+                                    settings.apiKey, settings.model, settings.roleName,
+                                    settings.rolePrompt,
                                 )
                                 TranslationField.ApiKey -> TranslationSettings(
                                     settings.apiType, settings.target, settings.baseUrl,
-                                    draftValue, settings.model,
+                                    draftValue, settings.model, settings.roleName,
+                                    settings.rolePrompt,
                                 )
                                 TranslationField.Model -> TranslationSettings(
                                     settings.apiType, settings.target, settings.baseUrl,
-                                    settings.apiKey, draftValue,
+                                    settings.apiKey, draftValue, settings.roleName,
+                                    settings.rolePrompt,
                                 )
                             },
                         )
@@ -2070,7 +2112,7 @@ private fun TranslationPreferenceCard(context: Context) {
     }
 }
 
-private enum class TranslationField { BaseUrl, ApiKey, Model }
+private enum class TranslationField { RoleName, RolePrompt, BaseUrl, ApiKey, Model }
 
 private fun copySettings(
     current: DragShareSettings,

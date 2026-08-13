@@ -101,23 +101,27 @@ public final class TextTranslationEngine {
     }
 
     /**
-     * Builds the JSON request body for a translation call.
+     * Builds the JSON request body for a translation call using the given
+     * system prompt.
      */
-    public static String buildRequestJson(int apiType, String model, String targetLanguage,
+    public static String buildRequestJson(int apiType, String model, String systemPrompt,
                                           String text) throws JSONException {
         if (apiType == TranslationSettings.API_TYPE_CLAUDE) {
-            return buildClaudeRequestJson(model, targetLanguage, text);
+            return buildClaudeRequestJson(model, systemPrompt, text);
         }
-        return buildOpenAiRequestJson(model, targetLanguage, text);
+        return buildOpenAiRequestJson(model, systemPrompt, text);
     }
 
-    private static String buildOpenAiRequestJson(String model, String targetLanguage, String text)
+    private static String buildOpenAiRequestJson(String model, String systemPrompt, String text)
             throws JSONException {
         JSONObject body = new JSONObject();
         body.put("model", model);
         body.put("temperature", 0.2);
         JSONArray messages = new JSONArray();
-        messages.put(systemMessage(targetLanguage));
+        JSONObject system = new JSONObject();
+        system.put("role", "system");
+        system.put("content", systemPrompt);
+        messages.put(system);
         JSONObject user = new JSONObject();
         user.put("role", "user");
         user.put("content", text);
@@ -126,13 +130,13 @@ public final class TextTranslationEngine {
         return body.toString();
     }
 
-    private static String buildClaudeRequestJson(String model, String targetLanguage, String text)
+    private static String buildClaudeRequestJson(String model, String systemPrompt, String text)
             throws JSONException {
         JSONObject body = new JSONObject();
         body.put("model", model);
         body.put("max_tokens", 1024);
         body.put("temperature", 0.2);
-        body.put("system", systemPrompt(targetLanguage));
+        body.put("system", systemPrompt);
         JSONArray messages = new JSONArray();
         JSONObject user = new JSONObject();
         user.put("role", "user");
@@ -142,14 +146,11 @@ public final class TextTranslationEngine {
         return body.toString();
     }
 
-    private static JSONObject systemMessage(String targetLanguage) throws JSONException {
-        JSONObject system = new JSONObject();
-        system.put("role", "system");
-        system.put("content", systemPrompt(targetLanguage));
-        return system;
-    }
-
-    private static String systemPrompt(String targetLanguage) {
+    /**
+     * The built-in translator instruction used when the user has not written a
+     * custom role prompt.
+     */
+    public static String defaultSystemPrompt(String targetLanguage) {
         return "You are a professional translator. Translate the user's text into "
                 + targetLanguageName(targetLanguage)
                 + ". Return only the translated text, without explanations or quotation marks.";
@@ -243,9 +244,12 @@ public final class TextTranslationEngine {
      */
     public static String translate(Context context, String text, TranslationSettings settings)
             throws Exception {
-        String targetLanguage = resolveTargetLanguage(text, settings.target);
+        String systemPrompt = settings.rolePrompt.isEmpty()
+                ? defaultSystemPrompt(resolveTargetLanguage(text, settings.target))
+                : settings.rolePrompt;
         String url = buildChatUrl(settings.baseUrl, settings.apiType);
-        String requestBody = buildRequestJson(settings.apiType, settings.model, targetLanguage, text);
+        String requestBody = buildRequestJson(
+                settings.apiType, settings.effectiveModel(), systemPrompt, text);
         String responseBody = httpPost(url, settings.apiType, settings.apiKey, requestBody);
         try {
             return parseChatResponse(settings.apiType, responseBody);

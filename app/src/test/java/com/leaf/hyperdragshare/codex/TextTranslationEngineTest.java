@@ -119,7 +119,8 @@ public class TextTranslationEngineTest {
 
     @Test
     public void buildRequestJsonContainsModelMessagesAndTarget() throws Exception {
-        String json = TextTranslationEngine.buildRequestJson(OPENAI, "my-model", "en", "你好");
+        String json = TextTranslationEngine.buildRequestJson(
+                OPENAI, "my-model", TextTranslationEngine.defaultSystemPrompt("en"), "你好");
         JSONObject body = new JSONObject(json);
         assertEquals("my-model", body.getString("model"));
         assertEquals(2, body.getJSONArray("messages").length());
@@ -132,15 +133,27 @@ public class TextTranslationEngineTest {
 
     @Test
     public void buildRequestJsonNamesChineseTarget() throws Exception {
-        String json = TextTranslationEngine.buildRequestJson(OPENAI, "m", "zh", "hello");
+        String json = TextTranslationEngine.buildRequestJson(
+                OPENAI, "m", TextTranslationEngine.defaultSystemPrompt("zh"), "hello");
         JSONObject body = new JSONObject(json);
         assertTrue(body.getJSONArray("messages").getJSONObject(0).getString("content")
                 .contains("Chinese"));
     }
 
     @Test
+    public void buildRequestJsonPassesCustomSystemPromptThrough() throws Exception {
+        String json = TextTranslationEngine.buildRequestJson(
+                OPENAI, "my-model", "你是医学翻译官，只输出专业术语译文。", "你好");
+        JSONObject body = new JSONObject(json);
+        assertEquals(
+                "你是医学翻译官，只输出专业术语译文。",
+                body.getJSONArray("messages").getJSONObject(0).getString("content"));
+    }
+
+    @Test
     public void buildClaudeRequestJsonHasSystemAndMaxTokens() throws Exception {
-        String json = TextTranslationEngine.buildRequestJson(CLAUDE, "claude-x", "en", "你好");
+        String json = TextTranslationEngine.buildRequestJson(
+                CLAUDE, "claude-x", TextTranslationEngine.defaultSystemPrompt("en"), "你好");
         JSONObject body = new JSONObject(json);
         assertEquals("claude-x", body.getString("model"));
         assertTrue(body.getString("system").contains("English"));
@@ -148,6 +161,36 @@ public class TextTranslationEngineTest {
         assertEquals(
                 "你好",
                 body.getJSONArray("messages").getJSONObject(0).getString("content"));
+    }
+
+    @Test
+    public void claudeRequestJsonCarriesCustomRolePrompt() throws Exception {
+        String prompt = "你是法律领域翻译官，译文需符合中文法律文书用语。";
+        String json = TextTranslationEngine.buildRequestJson(CLAUDE, "claude-x", prompt, "条款");
+        JSONObject body = new JSONObject(json);
+        assertEquals(prompt, body.getString("system"));
+    }
+
+    @Test
+    public void effectiveModelFallsBackToTypeDefault() {
+        TranslationSettings openAi = new TranslationSettings(
+                TranslationSettings.API_TYPE_OPENAI,
+                TranslationSettings.TARGET_AUTO, "", "", "", "", "");
+        assertEquals(
+                TranslationSettings.DEFAULT_OPENAI_MODEL, openAi.effectiveModel());
+        TranslationSettings claude = new TranslationSettings(
+                TranslationSettings.API_TYPE_CLAUDE,
+                TranslationSettings.TARGET_AUTO, "", "", "", "", "");
+        assertEquals(
+                TranslationSettings.DEFAULT_CLAUDE_MODEL, claude.effectiveModel());
+    }
+
+    @Test
+    public void effectiveModelKeepsUserModel() {
+        TranslationSettings settings = new TranslationSettings(
+                TranslationSettings.API_TYPE_OPENAI,
+                TranslationSettings.TARGET_AUTO, "", "", "my-model", "", "");
+        assertEquals("my-model", settings.effectiveModel());
     }
 
     @Test
