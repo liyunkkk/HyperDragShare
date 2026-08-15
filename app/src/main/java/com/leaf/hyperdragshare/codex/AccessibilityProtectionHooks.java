@@ -16,6 +16,7 @@ import java.util.Date;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import de.robv.android.xposed.XposedBridge;
 import de.robv.android.xposed.XposedHelpers;
 import de.robv.android.xposed.XC_MethodHook;
 
@@ -30,14 +31,15 @@ final class AccessibilityProtectionHooks {
     private static final String SYSTEM_LOG_FILE = "/data/local/tmp/HyperDragShare/system-server.log";
 
     private static final String SYSTEM_SERVER_CLASS = "com.android.server.SystemServer";
-    private static final String TIMINGS_TRACE_AND_SLOG_CLASS =
-            "com.android.server.utils.TimingsTraceAndSlog";
     private static final String BACKGROUND_THREAD_CLASS =
             "com.android.internal.os.BackgroundThread";
 
     private static volatile AccessibilityServiceEnforcer enforcer;
     private static final AtomicInteger startAttempts = new AtomicInteger();
     private static final int MAX_START_ATTEMPTS = 5;
+    // run() starts SystemServer.createSystemContext() early; 3s is enough for the
+    // ActivityThread system context to exist by the time the delayed task runs.
+    private static final long RUN_FALLBACK_DELAY_MS = 3_000L;
 
     private AccessibilityProtectionHooks() {}
 
@@ -66,7 +68,7 @@ final class AccessibilityProtectionHooks {
         }
         boolean installed = tryHookStartOtherServices(classLoader);
         if (!installed) {
-            installed = tryHookSystemServerMain(classLoader);
+            installed = tryHookSystemServerRun(classLoader);
         }
         if (!installed) {
             Log.w(TAG, "unable to install accessibility protection hook on any entry point");
@@ -75,65 +77,92 @@ final class AccessibilityProtectionHooks {
     }
 
     private static boolean tryHookStartOtherServices(ClassLoader classLoader) {
+        final Class<?> systemServerClass;
+        try {
+            systemServerClass = XposedHelpers.findClass(SYSTEM_SERVER_CLASS, classLoader);
+        } catch (Throwable failure) {
+            Log.w(TAG, "unable to load SystemServer class: "
+                    + failure.getClass().getSimpleName());
+            systemLog("hook startOtherServices 失败: 无法加载 SystemServer 类: "
+                    + failure.getClass().getSimpleName() + ": " + failure.getMessage());
+            return false;
+        }
+        int hooked = 0;
+        for (Method method : systemServerClass.getDeclaredMethods()) {
+            if (!"startOtherServices".equals(method.getName())) {
+                continue;
+            }
+            try {
+                XposedBridge.hookMethod(method, new XC_MethodHook() {
+                    @Override
+                    protected void afterHookedMethod(MethodHookParam param) {
+                        startEnforcer(param.thisObject, classLoader, "start_other_services");
+                    }
+                });
+                hooked++;
+            } catch (Throwable failure) {
+                systemLog("hook startOtherServices 变体失败: "
+                        + failure.getClass().getSimpleName() + ": " + failure.getMessage());
+            }
+        }
+        if (hooked == 0) {
+            Log.w(TAG, "no startOtherServices overload could be hooked");
+            systemLog("hook startOtherServices 失败: 未找到可 hook 的 startOtherServices 重载");
+            return false;
+        }
+        Log.i(TAG, "hooked " + hooked + " SystemServer.startOtherServices overload(s)");
+        systemLog("已 hook SystemServer.startOtherServices，命中重载数=" + hooked);
+        return true;
+    }
+
+    /**
+     * Fallback entry point. SystemServer.run() exists on every API level as a
+     * stable parameterless method; it never returns (it enters the system main
+     * Looper), so an afterHook would never fire. Instead the beforeHook schedules
+     * a delayed startup attempt: by then run() has executed createSystemContext(),
+     * so the system context is resolvable via ActivityThread even though no
+     * thisObject is available for the static-ish entry.
+     */
+    private static boolean tryHookSystemServerRun(ClassLoader classLoader) {
         try {
             final Class<?> systemServerClass = XposedHelpers.findClass(
                     SYSTEM_SERVER_CLASS,
                     classLoader);
-            final Class<?> timingsClass = XposedHelpers.findClass(
-                    TIMINGS_TRACE_AND_SLOG_CLASS,
-                    classLoader);
-            XposedHelpers.findAndHookMethod(
-                    systemServerClass,
-                    "startOtherServices",
-                    timingsClass,
-                    new XC_MethodHook() {
-                        @Override
-                        protected void afterHookedMethod(MethodHookParam param) {
-                            startEnforcer(param.thisObject, classLoader, "start_other_services");
-                        }
-                    });
-            Log.i(TAG, "hooked SystemServer.startOtherServices");
-            systemLog("已 hook SystemServer.startOtherServices");
-            return true;
+            for (Method method : systemServerClass.getDeclaredMethods()) {
+                if (!"run".equals(method.getName()) || method.getParameterTypes().length != 0) {
+                    continue;
+                }
+                XposedBridge.hookMethod(method, new XC_MethodHook() {
+                    @Override
+                    protected void beforeHookedMethod(MethodHookParam param) {
+                        scheduleRunFallbackEnforcerStart(classLoader);
+                    }
+                });
+                Log.i(TAG, "hooked SystemServer.run as fallback");
+                systemLog("已 hook SystemServer.run 作为兜底入口");
+                return true;
+            }
+            systemLog("hook SystemServer.run 失败: 未找到无参 run() 重载");
+            return false;
         } catch (Throwable failure) {
-            Log.w(TAG, "unable to hook SystemServer.startOtherServices: "
+            Log.w(TAG, "unable to hook SystemServer.run: "
                     + failure.getClass().getSimpleName());
-            systemLog("hook startOtherServices 失败: " + failure.getClass().getSimpleName()
+            systemLog("hook SystemServer.run 失败: " + failure.getClass().getSimpleName()
                     + ": " + failure.getMessage());
             return false;
         }
     }
 
-    /**
-     * Fallback entry point. SystemServer.main(String[]) exists on every API
-     * level with a stable signature; it runs after startOtherServices has
-     * finished, so enforcer startup there is safe. The method is static, so
-     * thisObject is null and context resolution falls back to ActivityThread.
-     */
-    private static boolean tryHookSystemServerMain(ClassLoader classLoader) {
+    private static void scheduleRunFallbackEnforcerStart(final ClassLoader classLoader) {
         try {
-            final Class<?> systemServerClass = XposedHelpers.findClass(
-                    SYSTEM_SERVER_CLASS,
-                    classLoader);
-            XposedHelpers.findAndHookMethod(
-                    systemServerClass,
-                    "main",
-                    String[].class,
-                    new XC_MethodHook() {
-                        @Override
-                        protected void afterHookedMethod(MethodHookParam param) {
-                            startEnforcer(null, classLoader, "main_fallback");
-                        }
-                    });
-            Log.i(TAG, "hooked SystemServer.main as fallback");
-            systemLog("已 hook SystemServer.main 作为兜底入口");
-            return true;
+            final Handler mainHandler = new Handler(Looper.getMainLooper());
+            mainHandler.postDelayed(
+                    () -> startEnforcer(null, classLoader, "run_fallback"),
+                    RUN_FALLBACK_DELAY_MS);
+            systemLog("已安排 run 兜底 enforcer 启动 (delay=" + RUN_FALLBACK_DELAY_MS + "ms)");
         } catch (Throwable failure) {
-            Log.w(TAG, "unable to hook SystemServer.main: "
+            systemLog("无法安排 run 兜底 enforcer 启动: "
                     + failure.getClass().getSimpleName());
-            systemLog("hook SystemServer.main 失败: " + failure.getClass().getSimpleName()
-                    + ": " + failure.getMessage());
-            return false;
         }
     }
 

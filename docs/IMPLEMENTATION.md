@@ -91,11 +91,15 @@ system_server 侧的关键轨迹（hook 安装、receiver 注册、收到控制�
 ## 3. system_server 保活门闩
 
 模块接入 LSPosed 后，`MainHook.handleLoadPackage()` 只接受 `packageName == "android"`，然后委托
-`AccessibilityProtectionHooks.install(lpparam.classLoader)`。后者优先 hook
-`SystemServer.startOtherServices(TimingsTraceAndSlog)`，在 after 时刻通过反射读取当前系统
-Context 和 `BackgroundThread.getHandler()`，创建并启动 `AccessibilityServiceEnforcer`。若主签名
-不存在（ROM 改动），自动回退 hook 稳定的 `SystemServer.main(String[])` 兜底入口；
-context/Handler 暂不可用时还会在主线程上重试启动最多 5 次。
+`AccessibilityProtectionHooks.install(lpparam.classLoader)`。后者通过反射枚举
+`SystemServer` 上所有名为 `startOtherServices` 的声明方法并 hook 命中的每个重载，在 after 时刻
+通过反射读取当前系统 Context 和 `BackgroundThread.getHandler()`，创建并启动
+`AccessibilityServiceEnforcer`。枚举法兼容 ROM 改掉 `startOtherServices(TimingsTraceAndSlog)`
+签名的情况。若没有任何 `startOtherServices` 重载可 hook，回退 hook 稳定无参的
+`SystemServer.run()`：因为 `run()` 进入 system 主 Looper 永不返回，afterHook 永不触发，所以改在
+beforeHook 中 `postDelayed` 一个迟到约 3 秒的启动尝试——此时 `run()` 内的 `createSystemContext()`
+已执行，ActivityThread 路径可解析 system context；context/Handler 暂不可用时还会在主线程上
+重试启动最多 5 次。
 
 门闩默认关闭，事件驱动，不创建额外线程，不轮询：
 
