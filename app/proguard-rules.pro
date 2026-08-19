@@ -10,3 +10,7 @@
 # by reflection; the bundled model classes must survive minification.
 -keep class com.google.mlkit.** { *; }
 -keep class com.google.android.gms.internal.mlkit_common.** { *; }
+# Keep the Xposed scope resource: R8 shrinkResources removes resources that are
+# only referenced from AndroidManifest, which would make LSPosed unable to read
+# the module scope and never inject into system_server.
+-keepresources string-array/xposed_scope
