@@ -16,9 +16,7 @@ import java.util.Date;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import de.robv.android.xposed.XposedBridge;
-import de.robv.android.xposed.XposedHelpers;
-import de.robv.android.xposed.XC_MethodHook;
+import io.github.libxposed.api.XposedInterface;
 
 /**
  * Installs the accessibility protection into system_server after the other
@@ -59,17 +57,17 @@ final class AccessibilityProtectionHooks {
         }
     }
 
-    /** Called from MainHook when packageName is "android". */
-    static void install(ClassLoader classLoader) {
+    /** Called from MainHook when system server starts. */
+    static void install(XposedInterface xposed, ClassLoader classLoader) {
         if (classLoader == null) {
             Log.w(TAG, "no system_server class loader for accessibility protection");
             systemLog("install(classLoader=null) 被调用，classLoader 为空");
             return;
         }
         systemLog("install() 已进入，classLoader=" + classLoader.getClass().getName());
-        boolean installed = tryHookStartOtherServices(classLoader);
+        boolean installed = tryHookStartOtherServices(xposed, classLoader);
         if (!installed) {
-            installed = tryHookSystemServerRun(classLoader);
+            installed = tryHookSystemServerRun(xposed, classLoader);
         }
         if (!installed) {
             Log.w(TAG, "unable to install accessibility protection hook on any entry point");
@@ -77,10 +75,10 @@ final class AccessibilityProtectionHooks {
         }
     }
 
-    private static boolean tryHookStartOtherServices(ClassLoader classLoader) {
+    private static boolean tryHookStartOtherServices(XposedInterface xposed, ClassLoader classLoader) {
         final Class<?> systemServerClass;
         try {
-            systemServerClass = XposedHelpers.findClass(SYSTEM_SERVER_CLASS, classLoader);
+            systemServerClass = Class.forName(SYSTEM_SERVER_CLASS, false, classLoader);
         } catch (Throwable failure) {
             Log.w(TAG, "unable to load SystemServer class: "
                     + failure.getClass().getSimpleName());
@@ -94,12 +92,13 @@ final class AccessibilityProtectionHooks {
                 continue;
             }
             try {
-                XposedBridge.hookMethod(method, new XC_MethodHook() {
-                    @Override
-                    protected void afterHookedMethod(MethodHookParam param) {
-                        startEnforcer(param.thisObject, classLoader, "start_other_services");
-                    }
-                });
+                xposed.hook(method)
+                        .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
+                        .intercept(chain -> {
+                            Object result = chain.proceed();
+                            startEnforcer(chain.getThisObject(), classLoader, "start_other_services");
+                            return result;
+                        });
                 hooked++;
             } catch (Throwable failure) {
                 systemLog("hook startOtherServices 变体失败: "
@@ -124,21 +123,22 @@ final class AccessibilityProtectionHooks {
      * so the system context is resolvable via ActivityThread even though no
      * thisObject is available for the static-ish entry.
      */
-    private static boolean tryHookSystemServerRun(ClassLoader classLoader) {
+    private static boolean tryHookSystemServerRun(XposedInterface xposed, ClassLoader classLoader) {
         try {
-            final Class<?> systemServerClass = XposedHelpers.findClass(
+            final Class<?> systemServerClass = Class.forName(
                     SYSTEM_SERVER_CLASS,
+                    false,
                     classLoader);
             for (Method method : systemServerClass.getDeclaredMethods()) {
                 if (!"run".equals(method.getName()) || method.getParameterTypes().length != 0) {
                     continue;
                 }
-                XposedBridge.hookMethod(method, new XC_MethodHook() {
-                    @Override
-                    protected void beforeHookedMethod(MethodHookParam param) {
-                        scheduleRunFallbackEnforcerStart(classLoader);
-                    }
-                });
+                xposed.hook(method)
+                        .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
+                        .intercept(chain -> {
+                            scheduleRunFallbackEnforcerStart(classLoader);
+                            return chain.proceed();
+                        });
                 Log.i(TAG, "hooked SystemServer.run as fallback");
                 systemLog("已 hook SystemServer.run 作为兜底入口");
                 return true;
@@ -300,8 +300,9 @@ final class AccessibilityProtectionHooks {
 
     private static Handler resolveSystemBackgroundHandler(ClassLoader classLoader) {
         try {
-            Class<?> backgroundThreadClass = XposedHelpers.findClass(
+            Class<?> backgroundThreadClass = Class.forName(
                     BACKGROUND_THREAD_CLASS,
+                    false,
                     classLoader);
             Method getHandler = backgroundThreadClass.getDeclaredMethod("getHandler");
             getHandler.setAccessible(true);

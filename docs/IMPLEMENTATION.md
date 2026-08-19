@@ -9,14 +9,15 @@
 ## 1. 运行边界
 
 - 内容获取：仅无障碍模式（`DragShareAccessibilityService`），无传送门捕获运行方案
-- LSPosed 作用域：`android`（system_server），只安装无障碍保活门闩 Hook
+- 注入作用域：`system`（system_server，libxposed 虚拟包名）+ `android`，只安装无障碍保活门闩 Hook
 - 不注入任何普通应用包名，不启动或强停 `com.miui.contentextension` / `com.miui.contentcatcher`
 - Android：minSdk 33，targetSdk 34，compileSdk 37
-- LSPosed API：82
+- Xposed API：libxposed API 101（Vector 2.1）；入口读取 `META-INF/xposed/java_init.list`
 - 可靠输入：root + Linux evdev（唯一输入源）
 
-LSPosed 默认作用域由 `res/values/arrays.xml` 声明，且 `MainHook` 在运行时再次检查包名。
-因此即使用户误选其他应用，Hook 逻辑也只会在 system_server 中安装。
+libxposed 现代 API 用 `META-INF/xposed/scope.list` 声明作用域，其中虚拟包名
+`system` 代表 system_server；`android` 包仅覆盖其 `:ui` 等非 system 进程。模块以
+`MainHook.onSystemServerStarting()` 作为 system_server 唯一入口，不再在运行时按包名过滤。
 
 ## 2. 总体数据流
 
@@ -54,7 +55,7 @@ system_server 侧的关键轨迹（hook 安装、receiver 注册、收到控制�
 
 | 文件 | 职责 |
 | --- | --- |
-| `MainHook.java` | 限制 LSPosed 注入包 `android`，安装 system_server 保活门闩 |
+| `MainHook.java` | libxposed 入口（API 101），`onSystemServerStarting()` 安装 system_server 保活门闩 |
 | `AccessibilityProtectionHooks.java` | hook `SystemServer.startOtherServices` 创建保活门闩 |
 | `AccessibilityServiceEnforcer.java` | system_server 侧事件驱动保活：ContentObserver、repair/backoff/limiter、签名钉扎 |
 | `AccessibilityProtectionProtocol.java` | 开关/恢复广播、Settings.Global 键和健康检查协议常量 |
@@ -90,14 +91,15 @@ system_server 侧的关键轨迹（hook 安装、receiver 注册、收到控制�
 
 ## 3. system_server 保活门闩
 
-模块接入 LSPosed 后，`MainHook.handleLoadPackage()` 只接受 `packageName == "android"`，然后委托
-`AccessibilityProtectionHooks.install(lpparam.classLoader)`。后者通过反射枚举
-`SystemServer` 上所有名为 `startOtherServices` 的声明方法并 hook 命中的每个重载，在 after 时刻
-通过反射读取当前系统 Context 和 `BackgroundThread.getHandler()`，创建并启动
-`AccessibilityServiceEnforcer`。枚举法兼容 ROM 改掉 `startOtherServices(TimingsTraceAndSlog)`
-签名的情况。若没有任何 `startOtherServices` 重载可 hook，回退 hook 稳定无参的
-`SystemServer.run()`：因为 `run()` 进入 system 主 Looper 永不返回，afterHook 永不触发，所以改在
-beforeHook 中 `postDelayed` 一个迟到约 3 秒的启动尝试——此时 `run()` 内的 `createSystemContext()`
+模块接入 Vector 2.1（libxposed API 101）后，`MainHook.onSystemServerStarting()` 拿到
+system_server 的 classLoader，然后委托 `AccessibilityProtectionHooks.install(this, classLoader)`。
+后者通过反射枚举 `SystemServer` 上所有名为 `startOtherServices` 的声明方法并用
+`hook(method).setExceptionMode(PROTECTIVE).intercept(...)` 命中每个重载：interceptor 先
+`chain.proceed()` 走完原方法，再在 after 时刻通过反射读取当前系统 Context 和
+`BackgroundThread.getHandler()`，创建并启动 `AccessibilityServiceEnforcer`。枚举法兼容 ROM 改掉
+`startOtherServices(TimingsTraceAndSlog)` 签名的情况。若没有任何 `startOtherServices` 重载可
+hook，回退 hook 稳定无参的 `SystemServer.run()`：interceptor 在 `chain.proceed()` 之前
+`postDelayed` 一个迟到约 3 秒的启动尝试——此时 `run()` 内的 `createSystemContext()`
 已执行，ActivityThread 路径可解析 system context；context/Handler 暂不可用时还会在主线程上
 重试启动最多 5 次。
 

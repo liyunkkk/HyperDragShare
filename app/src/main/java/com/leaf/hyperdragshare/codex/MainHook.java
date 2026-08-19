@@ -1,7 +1,6 @@
 package com.leaf.hyperdragshare.codex;
 
-import de.robv.android.xposed.IXposedHookLoadPackage;
-import de.robv.android.xposed.callbacks.XC_LoadPackage;
+import android.util.Log;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -11,23 +10,33 @@ import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
 
-public final class MainHook implements IXposedHookLoadPackage {
+import io.github.libxposed.api.XposedModule;
+import io.github.libxposed.api.XposedModuleInterface.ModuleLoadedParam;
+import io.github.libxposed.api.XposedModuleInterface.SystemServerStartingParam;
+
+public final class MainHook extends XposedModule {
+    private static final String TAG = "DragShare";
     private static final String SYSTEM_LOG_FILE =
             "/data/local/tmp/HyperDragShare/system-server.log";
-    /** LSPosed matches the system_server process by the "android" package name. */
-    static final String SYSTEM_SERVER_PACKAGE = "android";
 
     @Override
-    public void handleLoadPackage(XC_LoadPackage.LoadPackageParam lpparam) {
-        if (SYSTEM_SERVER_PACKAGE.equals(lpparam.packageName)) {
-            systemLog("MainHook.handleLoadPackage 命中 system_server: package="
-                    + lpparam.packageName
-                    + " classLoader=" + (lpparam.classLoader == null
-                    ? "null" : lpparam.classLoader.getClass().getName())
-                    + " version=" + BuildConfig.VERSION_NAME
-                    + "(" + BuildConfig.VERSION_CODE + ")");
-            AccessibilityProtectionHooks.install(lpparam.classLoader);
-        }
+    public void onModuleLoaded(ModuleLoadedParam param) {
+        systemLog("MainHook.onModuleLoaded: process=" + param.getProcessName()
+                + " isSystemServer=" + param.isSystemServer()
+                + " version=" + BuildConfig.VERSION_NAME
+                + "(" + BuildConfig.VERSION_CODE + ")");
+    }
+
+    /** system_server 的现代入口，替代旧模型按 "android" 包名的 handleLoadPackage 过滤。 */
+    @Override
+    public void onSystemServerStarting(SystemServerStartingParam param) {
+        systemLog("MainHook.onSystemServerStarting 命中 system_server: classLoader="
+                + (param.getClassLoader() == null
+                ? "null" : param.getClassLoader().getClass().getName())
+                + " version=" + BuildConfig.VERSION_NAME
+                + "(" + BuildConfig.VERSION_CODE + ")");
+        log(Log.INFO, TAG, "installing accessibility protection in system server");
+        AccessibilityProtectionHooks.install(this, param.getClassLoader());
     }
 
     private static void systemLog(String message) {
