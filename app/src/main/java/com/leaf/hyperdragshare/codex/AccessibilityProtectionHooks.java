@@ -66,6 +66,7 @@ final class AccessibilityProtectionHooks {
             systemLog("install(classLoader=null) 被调用，classLoader 为空");
             return;
         }
+        systemLog("install() 已进入，classLoader=" + classLoader.getClass().getName());
         boolean installed = tryHookStartOtherServices(classLoader);
         if (!installed) {
             installed = tryHookSystemServerRun(classLoader);
