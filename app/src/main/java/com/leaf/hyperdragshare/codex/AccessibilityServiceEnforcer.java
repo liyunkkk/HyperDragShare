@@ -203,11 +203,11 @@ final class AccessibilityServiceEnforcer {
                 context.registerReceiver(
                         controlReceiver,
                         filter,
-                        AccessibilityProtectionProtocol.PERMISSION,
+                        null,  // 改用内部 UID 校验，不再依赖签名级别的广播权限
                         handler,
                         Context.RECEIVER_EXPORTED);
                 controlReceiverRegistered = true;
-                systemLog("控制广播 receiver 已注册（签名权限保护）");
+                systemLog("控制广播 receiver 已注册（内部 UID 校验）");
             } catch (RuntimeException failure) {
                 logFailure("无法注册无障碍保护控制入口", failure);
                 systemLog("注册控制广播 receiver 失败: "
