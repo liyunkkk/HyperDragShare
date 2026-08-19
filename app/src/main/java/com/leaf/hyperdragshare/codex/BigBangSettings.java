@@ -16,7 +16,7 @@ final class BigBangSettings {
     }
 
     int getGapRowHeightPercent() {
-        return 100;
+        return 40;
     }
 
     int getWebSearchType() {

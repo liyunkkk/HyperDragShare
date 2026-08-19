@@ -282,6 +282,19 @@ public class BoomChipPage {
         return mLayout.getOriText();
     }
 
+    /** @return true if the user has selected one or more word chips. */
+    public boolean hasSelection() {
+        return mBoomActionHandler != null && mBoomActionHandler.hasSelection();
+    }
+
+    /** @return text of the selected word chips, or the full text when everything is selected. */
+    public String getSelectedText() {
+        if (mBoomActionHandler != null) {
+            return mBoomActionHandler.getSelectedText();
+        }
+        return getOriginalText();
+    }
+
     public void selectAll() {
         final int wordCount = mLayout.getWordCount();
         if (wordCount <= 0) {
@@ -446,10 +459,17 @@ public class BoomChipPage {
     }
 
     private void initChips(boolean animate) {
+        boolean prevWasGap = false;
         for (int i = 0; i < mLayout.getRowCount(); ++i) {
             final int start = mLayout.getRowStart(i);
             final int count = mLayout.getColumnCount(i);
             if (mLayout.isGapRow(i)) {
+                // Collapse consecutive blank rows into a single compact spacer so that
+                // unstructured / OCR text with large gaps cannot push real words out of view.
+                if (prevWasGap) {
+                    continue;
+                }
+                prevWasGap = true;
                 final int rowHeight = mActivity.getResources().getDimensionPixelOffset(R.dimen.chip_row_height);
                 final int gapHeight = Math.round(
                         rowHeight * BigBangSettings.get(mActivity).getGapRowHeightPercent() / 100f
@@ -474,6 +494,7 @@ public class BoomChipPage {
                 row.addView(chipView);
             }
             mBoomConent.addView(row);
+            prevWasGap = false;
         }
         mBoomConent.requestLayout();
         mScroller.post(new Runnable() {

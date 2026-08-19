@@ -1,11 +1,14 @@
 package com.leaf.hyperdragshare.codex
 
+import android.app.AlertDialog
 import android.app.SearchManager
 import android.content.ComponentName
 import android.content.Intent
 import android.graphics.Color as AndroidColor
 import android.net.Uri
 import android.os.Bundle
+import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
 import android.view.View
 import android.widget.EditText
 import android.widget.Toast
@@ -13,7 +16,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import android.app.AlertDialog
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -28,10 +30,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.DocumentScanner
 import androidx.compose.material.icons.outlined.Edit
-import androidx.compose.material.icons.outlined.Language
 import androidx.compose.material.icons.outlined.MoreHoriz
 import androidx.compose.material.icons.outlined.SelectAll
 import androidx.compose.material.icons.outlined.Share
+import androidx.compose.material.icons.outlined.VolumeUp
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -70,8 +72,13 @@ class TextSegmentationActivity : ComponentActivity() {
     private var currentText = ""
     private var currentSegment: IntArray? = null
     private var animatedDismissRequester: (() -> Unit)? = null
-
     private lateinit var exportLauncher: androidx.activity.result.ActivityResultLauncher<String>
+
+    // ===== TTS (read selected words aloud) =====
+    private var tts: TextToSpeech? = null
+    private var ttsReady = false
+    private var isSpeaking by mutableStateOf(false)
+
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -94,6 +101,8 @@ class TextSegmentationActivity : ComponentActivity() {
             page.restoreSelectedState(savedInstanceState?.getSerializable(SELECTED_STATE))
         }
 
+        initTts()
+
         setContent {
             BigBangOverlayContent(
                 contentView = legacyContentView,
@@ -107,6 +116,7 @@ class TextSegmentationActivity : ComponentActivity() {
                 onShareAll = { shareAll() },
                 onMore = { showTagCloud() },
                 onExport = { exportContent() },
+                onSpeak = { speakSelected() },
             )
         }
 
@@ -300,6 +310,58 @@ class TextSegmentationActivity : ComponentActivity() {
             .show()
     }
 
+    // ===== TTS: read selected words (or whole text) aloud =====
+
+    private fun initTts() {
+        tts = TextToSpeech(this) { status ->
+            ttsReady = status == TextToSpeech.SUCCESS
+            if (ttsReady) {
+                tts?.language = Locale.SIMPLIFIED_CHINESE
+                tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                    override fun onStart(utteranceId: String?) {
+                        isSpeaking = true
+                    }
+                    override fun onDone(utteranceId: String?) {
+                        isSpeaking = false
+                    }
+                    @Deprecated("Deprecated in Java")
+                    override fun onError(utteranceId: String?) {
+                        isSpeaking = false
+                    }
+                })
+            } else {
+                Toast.makeText(this, "朗读引擎不可用", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private fun speakSelected() {
+        if (isSpeaking) {
+            stopSpeaking()
+            return
+        }
+        val page = boomChipPage
+        val text = if (page != null && page.hasSelection()) {
+            page.getSelectedText()
+        } else {
+            currentText
+        }
+        if (text.isBlank()) {
+            Toast.makeText(this, "没有可朗读的内容", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (!ttsReady) {
+            Toast.makeText(this, "朗读引擎未就绪", Toast.LENGTH_SHORT).show()
+            return
+        }
+        tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "drag_share_tts")
+    }
+
+    private fun stopSpeaking() {
+        tts?.stop()
+        isSpeaking = false
+    }
+
     private fun showTagCloud() {
         val text = currentText
         if (text.isBlank()) {
@@ -435,6 +497,13 @@ class TextSegmentationActivity : ComponentActivity() {
         super.onSaveInstanceState(outState)
     }
 
+    override fun onDestroy() {
+        tts?.stop()
+        tts?.shutdown()
+        tts = null
+        super.onDestroy()
+    }
+
     companion object {
         @JvmField
         val DBG = true
@@ -482,6 +551,7 @@ private fun BigBangOverlayContent(
     onShareAll: () -> Unit,
     onMore: () -> Unit,
     onExport: () -> Unit,
+    onSpeak: () -> Unit,
 ) {
     val dark = isSystemInDarkTheme()
     val panelMetrics = rememberOverlayPanelMetrics()
@@ -632,11 +702,11 @@ private fun BigBangOverlayContent(
                         },
                         trailing = {
                             OverlayIconAction(
-                                imageVector = Icons.Outlined.Language,
-                                tint = if (dark) Color(0x66F2F5F8) else Color(0x668D8983),
-                                enabled = false,
-                                onClick = {},
-                                contentDescription = stringResource(R.string.bigbang_action_language),
+                                imageVector = if (isSpeaking) Icons.Outlined.Stop else Icons.Outlined.VolumeUp,
+                                tint = if (dark) Color(0xFFF2F5F8) else Color(0xFF6C6760),
+                                enabled = true,
+                                onClick = onSpeak,
+                                contentDescription = stringResource(R.string.bigbang_action_speak),
                             )
                         },
                     )
