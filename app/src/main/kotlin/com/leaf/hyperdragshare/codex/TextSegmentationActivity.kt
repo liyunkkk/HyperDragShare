@@ -117,6 +117,7 @@ class TextSegmentationActivity : ComponentActivity() {
                 onMore = { showTagCloud() },
                 onExport = { exportContent() },
                 onSpeak = { speakSelected() },
+                isSpeaking = isSpeaking,
             )
         }
 
@@ -552,6 +553,7 @@ private fun BigBangOverlayContent(
     onMore: () -> Unit,
     onExport: () -> Unit,
     onSpeak: () -> Unit,
+    isSpeaking: Boolean,
 ) {
     val dark = isSystemInDarkTheme()
     val panelMetrics = rememberOverlayPanelMetrics()
@@ -702,7 +704,7 @@ private fun BigBangOverlayContent(
                         },
                         trailing = {
                             OverlayIconAction(
-                                imageVector = if (isSpeaking) Icons.Outlined.Stop else Icons.Outlined.VolumeUp,
+                                imageVector = if (isSpeaking) Icons.Outlined.Pause else Icons.Outlined.VolumeUp,
                                 tint = if (dark) Color(0xFFF2F5F8) else Color(0xFF6C6760),
                                 enabled = true,
                                 onClick = onSpeak,
