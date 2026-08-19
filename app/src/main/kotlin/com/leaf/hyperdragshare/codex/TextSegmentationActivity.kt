@@ -7,10 +7,13 @@ import android.graphics.Color as AndroidColor
 import android.net.Uri
 import android.os.Bundle
 import android.view.View
+import android.widget.EditText
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -49,6 +52,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowCompat
+import java.io.FileOutputStream
+import java.io.OutputStreamWriter
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /**
  * DragShare's text-only BigBang surface. The selectable word-chip implementation is retained
@@ -63,8 +71,15 @@ class TextSegmentationActivity : ComponentActivity() {
     private var currentSegment: IntArray? = null
     private var animatedDismissRequester: (() -> Unit)? = null
 
+    private lateinit var exportLauncher: androidx.activity.result.ActivityResultLauncher<String>
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        exportLauncher = registerForActivityResult(ActivityResultContracts.CreateDocument()) { uri ->
+            uri?.let { handleExportUri(it) }
+        }
+
         WindowCompat.setDecorFitsSystemWindows(window, false)
         window.statusBarColor = AndroidColor.TRANSPARENT
         window.navigationBarColor = AndroidColor.TRANSPARENT
@@ -87,10 +102,11 @@ class TextSegmentationActivity : ComponentActivity() {
                 onDismissRequesterChanged = { animatedDismissRequester = it },
                 onDismissRequest = { shouldDismissPage() },
                 onDismissFinished = { finish() },
-                onEditMode = { showUnsupportedAction() },
+                onEditMode = { showEditDialog() },
                 onSelectAll = { selectAll() },
                 onShareAll = { shareAll() },
-                onMore = { showUnsupportedAction() },
+                onMore = { showTagCloud() },
+                onExport = { exportContent() },
             )
         }
 
@@ -259,9 +275,156 @@ class TextSegmentationActivity : ComponentActivity() {
         })
     }
 
-    private fun showUnsupportedAction() {
-        Toast.makeText(this, R.string.bigbang_action_placeholder, Toast.LENGTH_SHORT).show()
+    // ===== New features =====
+
+    private fun showEditDialog() {
+        val editText = EditText(this).apply {
+            setText(currentText)
+            selectAll()
+        }
+        AlertDialog.Builder(this)
+            .setTitle("编辑原文")
+            .setView(editText)
+            .setPositiveButton("更新") { _, _ ->
+                val newText = editText.text.toString()
+                if (newText.isNotBlank()) {
+                    currentText = ""
+                    currentSegment = null
+                    boomChipPage?.prepareForReinit()
+                    segmentLocally(newText)
+                } else {
+                    Toast.makeText(this, "文本不能为空", Toast.LENGTH_SHORT).show()
+                }
+            }
+            .setNegativeButton("取消", null)
+            .show()
     }
+
+    private fun showTagCloud() {
+        val text = currentText
+        if (text.isBlank()) {
+            Toast.makeText(this, "没有可分析的文本", Toast.LENGTH_SHORT).show()
+            return
+        }
+        // Simple word frequency: split by non-letter/non-digit
+        val words = text.split(Regex("[^\\p{L}\\p{N}]+"))
+            .filter { it.length > 1 }
+            .map { it.lowercase(Locale.getDefault()) }
+        if (words.isEmpty()) {
+            Toast.makeText(this, "没有足够的关键词", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val freq = words.groupingBy { it }.eachCount()
+        val sorted = freq.entries.sortedByDescending { it.value }.take(30)
+        val display = sorted.joinToString("\n") { "${it.key}  (${it.value})" }
+        AlertDialog.Builder(this)
+            .setTitle("高频词标签")
+            .setMessage(display)
+            .setPositiveButton("复制标签列表") { _, _ ->
+                val copyText = sorted.joinToString(", ") { it.key }
+                val clipboard = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("tags", copyText))
+                Toast.makeText(this, "已复制标签列表", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("关闭", null)
+            .show()
+    }
+
+    private fun exportContent() {
+        val text = currentText
+        if (text.isBlank()) {
+            Toast.makeText(this, "没有可导出的内容", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val formats = arrayOf("纯文本 (.txt)", "PDF (.pdf)", "Word (.html)")
+        AlertDialog.Builder(this)
+            .setTitle("导出为")
+            .setItems(formats) { _, which ->
+                when (which) {
+                    0 -> exportLauncher.launch("分词笔记_${timestamp()}.txt")
+                    1 -> exportLauncher.launch("分词笔记_${timestamp()}.pdf")
+                    2 -> exportLauncher.launch("分词笔记_${timestamp()}.html")
+                }
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    private fun handleExportUri(uri: Uri) {
+        val text = currentText
+        if (text.isBlank()) {
+            Toast.makeText(this, "没有可导出的内容", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val type = contentResolver.getType(uri) ?: run {
+            // fallback: determine from file extension
+            val path = uri.path ?: return
+            when {
+                path.endsWith(".pdf") -> "application/pdf"
+                path.endsWith(".html") -> "text/html"
+                else -> "text/plain"
+            }
+        }
+        Toast.makeText(this, "正在生成...", Toast.LENGTH_SHORT).show()
+        Thread({
+            try {
+                contentResolver.openOutputStream(uri)?.use { output ->
+                    when {
+                        type == "application/pdf" -> writePdf(output, text)
+                        type == "text/html" -> writeHtml(output, text)
+                        else -> writePlain(output, text)
+                    }
+                }
+                runOnUiThread {
+                    Toast.makeText(this, "导出成功", Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                DragShareLog.w(TAG, "export failed", e)
+                runOnUiThread {
+                    Toast.makeText(this, "导出失败: ${e.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }, "drag-share-export").start()
+    }
+
+    private fun writePlain(output: java.io.OutputStream, text: String) {
+        output.write(text.toByteArray(Charsets.UTF_8))
+    }
+
+    private fun writeHtml(output: java.io.OutputStream, text: String) {
+        val html = """
+            <html><head><meta charset="UTF-8"><title>分词笔记</title></head>
+            <body><pre>$text</pre></body></html>
+        """.trimIndent()
+        output.write(html.toByteArray(Charsets.UTF_8))
+    }
+
+    private fun writePdf(output: java.io.OutputStream, text: String) {
+        val pdf = android.graphics.pdf.PdfDocument()
+        val pageInfo = android.graphics.pdf.PdfDocument.PageInfo.Builder(612, 792, 1).create()
+        val page = pdf.startPage(pageInfo)
+        val canvas = page.canvas
+        val paint = android.graphics.Paint().apply {
+            color = AndroidColor.BLACK
+            textSize = 12f
+        }
+        val lines = text.split("\n")
+        var y = 50f
+        for (line in lines) {
+            if (y > 750) break
+            canvas.drawText(line, 50f, y, paint)
+            y += 20f
+        }
+        pdf.finishPage(page)
+        pdf.writeTo(output)
+        pdf.close()
+    }
+
+    private fun timestamp(): String {
+        return SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+    }
+
+    // ===== End of new features =====
 
     override fun onSaveInstanceState(outState: Bundle) {
         boomChipPage?.captureSelectedState()?.let { outState.putSerializable(SELECTED_STATE, it) }
@@ -318,6 +481,7 @@ private fun BigBangOverlayContent(
     onSelectAll: () -> Unit,
     onShareAll: () -> Unit,
     onMore: () -> Unit,
+    onExport: () -> Unit,
 ) {
     val dark = isSystemInDarkTheme()
     val panelMetrics = rememberOverlayPanelMetrics()
@@ -452,9 +616,9 @@ private fun BigBangOverlayContent(
                         leading = {
                             OverlayIconAction(
                                 imageVector = Icons.Outlined.DocumentScanner,
-                                tint = if (dark) Color(0x66F2F5F8) else Color(0x668D8983),
-                                enabled = false,
-                                onClick = {},
+                                tint = if (dark) Color(0xFFF2F5F8) else Color(0xFF6C6760),
+                                enabled = true,
+                                onClick = onExport,
                                 contentDescription = stringResource(R.string.bigbang_action_ocr),
                             )
                         },
