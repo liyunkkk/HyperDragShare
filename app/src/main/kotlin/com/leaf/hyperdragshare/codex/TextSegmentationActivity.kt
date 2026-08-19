@@ -704,8 +704,8 @@ private fun BigBangOverlayContent(
                         },
                         trailing = {
                             OverlayIconAction(
-                                imageVector = if (isSpeaking) Icons.Outlined.Pause else Icons.Outlined.VolumeUp,
-                                tint = if (dark) Color(0xFFF2F5F8) else Color(0xFF6C6760),
+                                imageVector = Icons.Outlined.VolumeUp,
+                                tint = if (isSpeaking) Color(0xFFFF5252) else if (dark) Color(0xFFF2F5F8) else Color(0xFF6C6760),
                                 enabled = true,
                                 onClick = onSpeak,
                                 contentDescription = stringResource(R.string.bigbang_action_speak),
