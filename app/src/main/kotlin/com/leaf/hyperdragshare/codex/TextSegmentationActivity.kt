@@ -1,5 +1,10 @@
 package com.leaf.hyperdragshare.codex
 
+// Shared dialog state enum (top-level so the top-level BigBangOverlayContent Composable can reference it)
+private enum class DialogMode {
+    NONE, EDIT, TAG_CLOUD, EXPORT
+}
+
 import android.app.SearchManager
 import android.content.ComponentName
 import android.content.Intent
@@ -25,6 +30,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -39,6 +45,7 @@ import androidx.compose.material.icons.outlined.VolumeUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -89,11 +96,6 @@ class TextSegmentationActivity : ComponentActivity() {
     private var dialogMode by mutableStateOf(DialogMode.NONE)
     private var editDraft by mutableStateOf("")
     private var tagCloudItems by mutableStateOf<List<Map.Entry<String, Int>>>(emptyList())
-
-    private enum class DialogMode {
-        NONE, EDIT, TAG_CLOUD, EXPORT
-    }
-
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
