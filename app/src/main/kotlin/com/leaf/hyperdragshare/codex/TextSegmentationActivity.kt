@@ -1,10 +1,5 @@
 package com.leaf.hyperdragshare.codex
 
-// Shared dialog state enum (top-level so the top-level BigBangOverlayContent Composable can reference it)
-private enum class DialogMode {
-    NONE, EDIT, TAG_CLOUD, EXPORT
-}
-
 import android.app.SearchManager
 import android.content.ComponentName
 import android.content.Intent
@@ -72,6 +67,11 @@ import java.io.OutputStreamWriter
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+// Shared dialog state enum (top-level so the top-level BigBangOverlayContent Composable can reference it)
+private enum class DialogMode {
+    NONE, EDIT, TAG_CLOUD, EXPORT
+}
 
 /**
  * DragShare's text-only BigBang surface. The selectable word-chip implementation is retained
