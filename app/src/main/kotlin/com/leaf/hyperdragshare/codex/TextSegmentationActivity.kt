@@ -1,6 +1,5 @@
 package com.leaf.hyperdragshare.codex
 
-import android.app.AlertDialog
 import android.app.SearchManager
 import android.content.ComponentName
 import android.content.Intent
@@ -26,7 +25,10 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.DocumentScanner
 import androidx.compose.material.icons.outlined.Edit
@@ -34,6 +36,10 @@ import androidx.compose.material.icons.outlined.MoreHoriz
 import androidx.compose.material.icons.outlined.SelectAll
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.VolumeUp
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -79,6 +85,15 @@ class TextSegmentationActivity : ComponentActivity() {
     private var ttsReady = false
     private var isSpeaking by mutableStateOf(false)
 
+    // Unified Compose dialog state (keeps popups visually consistent with the segmentation panel)
+    private var dialogMode by mutableStateOf(DialogMode.NONE)
+    private var editDraft by mutableStateOf("")
+    private var tagCloudItems by mutableStateOf<List<Map.Entry<String, Int>>>(emptyList())
+
+    private enum class DialogMode {
+        NONE, EDIT, TAG_CLOUD, EXPORT
+    }
+
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -118,6 +133,36 @@ class TextSegmentationActivity : ComponentActivity() {
                 onExport = { exportContent() },
                 onSpeak = { speakSelected() },
                 isSpeaking = isSpeaking,
+                dialogMode = dialogMode,
+                editDraft = editDraft,
+                tagCloudItems = tagCloudItems,
+                onDialogEditConfirm = { newText ->
+                    if (newText.isNotBlank()) {
+                        currentText = ""
+                        currentSegment = null
+                        boomChipPage?.prepareForReinit()
+                        segmentLocally(newText)
+                    } else {
+                        Toast.makeText(this, "文本不能为空", Toast.LENGTH_SHORT).show()
+                    }
+                    dialogMode = DialogMode.NONE
+                },
+                onDialogTagCloudCopy = {
+                    val copyText = tagCloudItems.joinToString(", ") { it.key }
+                    val clipboard = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                    clipboard.setPrimaryClip(android.content.ClipData.newPlainText("tags", copyText))
+                    Toast.makeText(this, "已复制标签列表", Toast.LENGTH_SHORT).show()
+                    dialogMode = DialogMode.NONE
+                },
+                onDialogExportPick = { which ->
+                    when (which) {
+                        0 -> exportLauncher.launch("分词笔记_${timestamp()}.txt")
+                        1 -> exportLauncher.launch("分词笔记_${timestamp()}.pdf")
+                        2 -> exportLauncher.launch("分词笔记_${timestamp()}.html")
+                    }
+                    dialogMode = DialogMode.NONE
+                },
+                onDialogDismiss = { dialogMode = DialogMode.NONE },
             )
         }
 
@@ -289,26 +334,8 @@ class TextSegmentationActivity : ComponentActivity() {
     // ===== New features =====
 
     private fun showEditDialog() {
-        val editText = EditText(this).apply {
-            setText(currentText)
-            selectAll()
-        }
-        AlertDialog.Builder(this)
-            .setTitle("编辑原文")
-            .setView(editText)
-            .setPositiveButton("更新") { _, _ ->
-                val newText = editText.text.toString()
-                if (newText.isNotBlank()) {
-                    currentText = ""
-                    currentSegment = null
-                    boomChipPage?.prepareForReinit()
-                    segmentLocally(newText)
-                } else {
-                    Toast.makeText(this, "文本不能为空", Toast.LENGTH_SHORT).show()
-                }
-            }
-            .setNegativeButton("取消", null)
-            .show()
+        editDraft = currentText
+        dialogMode = DialogMode.EDIT
     }
 
     // ===== TTS: read selected words (or whole text) aloud =====
@@ -369,7 +396,6 @@ class TextSegmentationActivity : ComponentActivity() {
             Toast.makeText(this, "没有可分析的文本", Toast.LENGTH_SHORT).show()
             return
         }
-        // Simple word frequency: split by non-letter/non-digit
         val words = text.split(Regex("[^\\p{L}\\p{N}]+"))
             .filter { it.length > 1 }
             .map { it.lowercase(Locale.getDefault()) }
@@ -378,19 +404,8 @@ class TextSegmentationActivity : ComponentActivity() {
             return
         }
         val freq = words.groupingBy { it }.eachCount()
-        val sorted = freq.entries.sortedByDescending { it.value }.take(30)
-        val display = sorted.joinToString("\n") { "${it.key}  (${it.value})" }
-        AlertDialog.Builder(this)
-            .setTitle("高频词标签")
-            .setMessage(display)
-            .setPositiveButton("复制标签列表") { _, _ ->
-                val copyText = sorted.joinToString(", ") { it.key }
-                val clipboard = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("tags", copyText))
-                Toast.makeText(this, "已复制标签列表", Toast.LENGTH_SHORT).show()
-            }
-            .setNegativeButton("关闭", null)
-            .show()
+        tagCloudItems = freq.entries.sortedByDescending { it.value }.take(30)
+        dialogMode = DialogMode.TAG_CLOUD
     }
 
     private fun exportContent() {
@@ -399,18 +414,7 @@ class TextSegmentationActivity : ComponentActivity() {
             Toast.makeText(this, "没有可导出的内容", Toast.LENGTH_SHORT).show()
             return
         }
-        val formats = arrayOf("纯文本 (.txt)", "PDF (.pdf)", "Word (.html)")
-        AlertDialog.Builder(this)
-            .setTitle("导出为")
-            .setItems(formats) { _, which ->
-                when (which) {
-                    0 -> exportLauncher.launch("分词笔记_${timestamp()}.txt")
-                    1 -> exportLauncher.launch("分词笔记_${timestamp()}.pdf")
-                    2 -> exportLauncher.launch("分词笔记_${timestamp()}.html")
-                }
-            }
-            .setNegativeButton("取消", null)
-            .show()
+        dialogMode = DialogMode.EXPORT
     }
 
     private fun handleExportUri(uri: Uri) {
@@ -554,6 +558,13 @@ private fun BigBangOverlayContent(
     onExport: () -> Unit,
     onSpeak: () -> Unit,
     isSpeaking: Boolean,
+    dialogMode: DialogMode,
+    editDraft: String,
+    tagCloudItems: List<Map.Entry<String, Int>>,
+    onDialogEditConfirm: (String) -> Unit,
+    onDialogTagCloudCopy: () -> Unit,
+    onDialogExportPick: (Int) -> Unit,
+    onDialogDismiss: () -> Unit,
 ) {
     val dark = isSystemInDarkTheme()
     val panelMetrics = rememberOverlayPanelMetrics()
@@ -713,7 +724,7 @@ private fun BigBangOverlayContent(
                         },
                     )
                 },
-            ) { bodyModifier ->
+) { bodyModifier ->
                 Column(modifier = bodyModifier.fillMaxSize()) {
                     Spacer(modifier = Modifier.height(4.dp))
                     AndroidView(
@@ -726,5 +737,101 @@ private fun BigBangOverlayContent(
                 }
             }
         }
+    }
+
+    if (dialogMode != DialogMode.NONE) {
+        val dialogBg = if (dark) Color(0xFF1D2126) else Color.White
+        val dialogText = if (dark) Color(0xFFF2F5F8) else Color(0xFF6C6760)
+        val dialogTitle = if (dark) Color(0xFFF2F5F8) else Color(0xFF6C6760)
+        val dialogAccent = if (dark) Color(0xFFF2F5F8) else Color(0xFF6C6760)
+        var editInput by remember { mutableStateOf(editDraft) }
+        AlertDialog(
+            onDismissRequest = onDialogDismiss,
+            containerColor = dialogBg,
+            tonalElevation = 0.dp,
+            title = {
+                Text(
+                    text = when (dialogMode) {
+                        DialogMode.EDIT -> "编辑原文"
+                        DialogMode.TAG_CLOUD -> "高频词标签"
+                        DialogMode.EXPORT -> "导出为"
+                        else -> ""
+                    },
+                    color = dialogTitle,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            },
+            text = {
+                when (dialogMode) {
+                    DialogMode.EDIT -> {
+                        OutlinedTextField(
+                            value = editInput,
+                            onValueChange = { editInput = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            textStyle = androidx.compose.ui.text.TextStyle(color = dialogText, fontSize = 15.sp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = dialogAccent,
+                                unfocusedBorderColor = dialogText.copy(alpha = 0.5f),
+                                cursorColor = dialogAccent,
+                            ),
+                        )
+                    }
+                    DialogMode.TAG_CLOUD -> {
+                        val items = tagCloudItems
+                        LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 320.dp)) {
+                            items(items.size) { idx ->
+                                val e = items[idx]
+                                Text(
+                                    text = "${e.key}  (${e.value})",
+                                    color = dialogText,
+                                    fontSize = 14.sp,
+                                    modifier = Modifier.padding(vertical = 4.dp),
+                                )
+                            }
+                        }
+                    }
+                    DialogMode.EXPORT -> {
+                        val formats = listOf("纯文本 (.txt)", "PDF (.pdf)", "Word (.html)")
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            formats.forEachIndexed { index, label ->
+                                Text(
+                                    text = label,
+                                    color = dialogText,
+                                    fontSize = 15.sp,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { onDialogExportPick(index) }
+                                        .padding(vertical = 12.dp),
+                                )
+                            }
+                        }
+                    }
+                    else -> {}
+                }
+            },
+            confirmButton = {
+                when (dialogMode) {
+                    DialogMode.EDIT -> {
+                        TextButton(onClick = {
+                            onDialogEditConfirm(editInput)
+                        }) {
+                            Text("更新", color = dialogAccent)
+                        }
+                    }
+                    DialogMode.TAG_CLOUD -> {
+                        TextButton(onClick = onDialogTagCloudCopy) {
+                            Text("复制标签列表", color = dialogAccent)
+                        }
+                    }
+                    else -> {}
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = onDialogDismiss) {
+                    Text("取消", color = dialogText)
+                }
+            },
+        )
     }
 }
