@@ -27,7 +27,12 @@ public class BoomWordsLayout {
     private ArrayList<Integer> mRowStart = new ArrayList<Integer>();
     private ArrayList<Integer> mRowCount = new ArrayList<Integer>();
     private ArrayList<Boolean> mRowIsGap = new ArrayList<Boolean>();
+    // Newline count carried by each row. 0 for chip rows; for gap rows it records how
+    // many consecutive '\n' characters produced this gap (1 = soft wrap, >=2 = paragraph).
+    private ArrayList<Integer> mRowGapNewlines = new ArrayList<Integer>();
     private ArrayList<Integer> mHardBreaks = new ArrayList<Integer>();
+    // Parallel to mHardBreaks: consecutive newline count accumulated at each hard-break index.
+    private ArrayList<Integer> mHardBreakNewlines = new ArrayList<Integer>();
     private int[] mIdToRow;
     private int mTouchedIndex;
     private String mOriText;
@@ -157,6 +162,7 @@ public class BoomWordsLayout {
         mOriText = text;
         mWords.clear();
         mHardBreaks.clear();
+        mHardBreakNewlines.clear();
         mTouchedIndex = -1;
         int start;
         int end;
@@ -210,19 +216,30 @@ public class BoomWordsLayout {
         for (int i = start; i < end; ++i) {
             char punc = mOriText.charAt(i);
             if (punc == '\n') {
-                addHardBreak();
+                addHardBreak(1);
             } else if (!Character.isWhitespace(punc) && !Character.isSpaceChar(punc)) {
                 mWords.add(new Word(String.valueOf(punc), i, true));
             }
         }
     }
 
-    private void addHardBreak() {
+    private void addHardBreak(int newlines) {
         final int breakIndex = mWords.size();
         if (mHardBreaks.size() > 0 && mHardBreaks.get(mHardBreaks.size() - 1) == breakIndex) {
+            // Same position as the previous hard break (no word emitted in between):
+            // accumulate the newline count instead of dropping it, so that '\n\n...'
+            // paragraph gaps can be told apart from single soft wraps later.
+            final int last = mHardBreakNewlines.size() - 1;
+            mHardBreakNewlines.set(last, mHardBreakNewlines.get(last) + newlines);
             return;
         }
         mHardBreaks.add(breakIndex);
+        mHardBreakNewlines.add(newlines);
+    }
+
+    private int getNewlinesForBreak(int breakIndex) {
+        final int idx = mHardBreaks.indexOf(breakIndex);
+        return idx >= 0 ? mHardBreakNewlines.get(idx) : 1;
     }
 
     private int measureChip(int index) {
@@ -241,13 +258,14 @@ public class BoomWordsLayout {
         mRowCount.clear();
         mRowStart.clear();
         mRowIsGap.clear();
+        mRowGapNewlines.clear();
         mIdToRow = new int[mWords.size()];
         for (int i = 0; i < mWords.size(); ++i) {
             if (isHardBreakIndex(i)) {
                 if (count > 0) {
-                    addRow(start, count, false);
+                    addRow(start, count, false, 0);
                 }
-                addRow(i, 0, true);
+                addRow(i, 0, true, getNewlinesForBreak(i));
                 start = i;
                 count = 0;
                 remain = mBoomPageWidth;
@@ -256,10 +274,10 @@ public class BoomWordsLayout {
             if (chipWidth > remain) {
                 if (count == 0) {
                     mIdToRow[i] = mRowCount.size();
-                    addRow(i, 1, false);
+                    addRow(i, 1, false, 0);
                     start = i + 1;
                 } else {
-                    addRow(start, count, false);
+                    addRow(start, count, false, 0);
                     start = i;
                     count = 0;
                     remain = mBoomPageWidth;
@@ -272,14 +290,15 @@ public class BoomWordsLayout {
             }
         }
         if (count > 0) {
-            addRow(start, count, false);
+            addRow(start, count, false, 0);
         }
     }
 
-    private void addRow(int start, int count, boolean isGap) {
+    private void addRow(int start, int count, boolean isGap, int gapNewlines) {
         mRowStart.add(start);
         mRowCount.add(count);
         mRowIsGap.add(isGap);
+        mRowGapNewlines.add(isGap ? gapNewlines : 0);
     }
 
     private boolean isHardBreakIndex(int index) {
@@ -300,6 +319,36 @@ public class BoomWordsLayout {
 
     public boolean isGapRow(int row) {
         return mRowIsGap.get(row);
+    }
+
+    /**
+     * @return the consecutive newline count that produced the gap row, or 0 for chip rows.
+     *         1 means a single soft wrap; >=2 means a real paragraph break.
+     */
+    public int getGapNewlines(int row) {
+        if (row < 0 || row >= mRowGapNewlines.size()) {
+            return 0;
+        }
+        return mRowGapNewlines.get(row);
+    }
+
+    /**
+     * Heuristic for "the source text itself has oversized line spacing" (e.g. OCR / web
+     * captures where nearly every line is separated by a blank line). When true the caller
+     * should tighten paragraph spacing so real words are not pushed off screen.
+     */
+    public boolean isLooseText() {
+        final int total = mHardBreakNewlines.size();
+        if (total < 3) {
+            return false;
+        }
+        int loose = 0;
+        for (int nl : mHardBreakNewlines) {
+            if (nl >= 2) {
+                ++loose;
+            }
+        }
+        return loose * 100 / total > 40;
     }
 
     public int getRowForIndex(int index) {
@@ -347,11 +396,13 @@ public class BoomWordsLayout {
         }
         RangeList<Word> newWords = new RangeList<Word>();
         ArrayList<Integer> newHardBreaks = new ArrayList<Integer>();
+        ArrayList<Integer> newHardBreakNewlines = new ArrayList<Integer>();
         TreeSet<Integer> newSelected = new TreeSet<Integer>();
         boolean changed = false;
         for (int i = 0; i < mWords.size(); ++i) {
             if (isHardBreakIndex(i)) {
                 newHardBreaks.add(newWords.size());
+                newHardBreakNewlines.add(getNewlinesForBreak(i));
             }
             final Word word = mWords.get(i);
             final boolean selected = selectedIds.contains(i);
@@ -376,6 +427,7 @@ public class BoomWordsLayout {
         }
         mWords = newWords;
         mHardBreaks = newHardBreaks;
+        mHardBreakNewlines = newHardBreakNewlines;
         generateLayout();
         return newSelected;
     }

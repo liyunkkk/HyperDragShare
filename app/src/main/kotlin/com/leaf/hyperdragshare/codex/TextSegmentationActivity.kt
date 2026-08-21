@@ -508,6 +508,11 @@ class TextSegmentationActivity : ComponentActivity() {
         tts?.stop()
         tts?.shutdown()
         tts = null
+        // Release the chip view hierarchy so the finished Activity (and its thousands
+        // of chip Views on long text) can be GC'd instead of lingering in the
+        // persistent module process.
+        boomChipPage?.release()
+        boomChipPage = null
         super.onDestroy()
     }
 

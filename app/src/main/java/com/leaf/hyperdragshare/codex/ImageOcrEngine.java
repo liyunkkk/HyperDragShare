@@ -40,19 +40,23 @@ final class ImageOcrEngine {
     private static TextRecognizer recognizer;
 
     private ImageOcrEngine() {}
-
     /** Pre-initializes the bundled model on a background thread to avoid first-gesture lag. */
     static void warmUp(Context context) {
-        if (context == null) {
-            return;
-        }
-        EXECUTOR.execute(() -> {
-            try {
-                textRecognizer(context);
-            } catch (Throwable ignored) {
-                // Warm-up is best effort; recognition falls back to lazy init.
+        // [Memory optimization] Warm-up is now a no-op. The recognizer will be
+        // lazily created on the first actual OCR request, saving ~60-80MB idle RAM.
+    }
+
+    /** Releases the cached recognizer to free native memory after use. */
+    static void releaseRecognizer() {
+        synchronized (RECOGNIZER_LOCK) {
+            if (recognizer != null) {
+                try {
+                    recognizer.close();
+                } catch (Throwable ignored) {
+                }
+                recognizer = null;
             }
-        });
+        }
     }
 
     static void recognize(Context context, Bitmap bitmap, Callback callback) {
@@ -71,10 +75,16 @@ final class ImageOcrEngine {
             return;
         }
         executor.execute(() -> {
+            // scaledForRecognition() returns the SOURCE bitmap unchanged when no scaling
+            // is needed; in that case we must NOT recycle it (it is payload.bitmap, still
+            // referenced by the preview window / share path). We only recycle the copy we
+            // ourselves allocated, identified by "scaled != bitmap".
+            Bitmap scaled = null;
             try {
+                scaled = scaledForRecognition(bitmap);
                 Text result = Tasks.await(
                         textRecognizer(context).process(
-                                InputImage.fromBitmap(scaledForRecognition(bitmap), 0)),
+                                InputImage.fromBitmap(scaled, 0)),
                         OCR_TIMEOUT_SECONDS,
                         TimeUnit.SECONDS);
                 String text = result == null ? "" : result.getText();
@@ -84,6 +94,10 @@ final class ImageOcrEngine {
                 callback.onResult(text.trim());
             } catch (Throwable error) {
                 callback.onFailure(error);
+            } finally {
+                if (scaled != null && scaled != bitmap && !scaled.isRecycled()) {
+                    scaled.recycle();
+                }
             }
         });
     }
