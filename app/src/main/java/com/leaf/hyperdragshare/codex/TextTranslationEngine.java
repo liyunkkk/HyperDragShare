@@ -259,6 +259,30 @@ public final class TextTranslationEngine {
     }
 
     /**
+     * Generic chat completion against the configured endpoint using an arbitrary
+     * system prompt. Powers the BigBang "AI quick actions" (summarise, key points,
+     * explain, translate, custom). Blocking; must run on a worker thread.
+     *
+     * @param systemPrompt the instruction that defines what the AI should do
+     * @param userText     the selected text to act on
+     */
+    public static String chat(Context context, String systemPrompt, String userText,
+                              TranslationSettings settings) throws Exception {
+        String effectivePrompt = (systemPrompt == null || systemPrompt.trim().isEmpty())
+                ? "You are a helpful assistant."
+                : systemPrompt;
+        String url = buildChatUrl(settings.baseUrl, settings.apiType);
+        String requestBody = buildRequestJson(
+                settings.apiType, settings.effectiveModel(), effectivePrompt, userText);
+        String responseBody = httpPost(url, settings.apiType, settings.apiKey, requestBody);
+        try {
+            return parseChatResponse(settings.apiType, responseBody);
+        } catch (JSONException malformed) {
+            throw new IOException("AI response could not be parsed", malformed);
+        }
+    }
+
+    /**
      * Fetches the model ids available from the configured endpoint. Blocking;
      * must run on a worker thread.
      */

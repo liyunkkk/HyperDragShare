@@ -28,16 +28,22 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.DocumentScanner
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.FilterList
 import androidx.compose.material.icons.outlined.MoreHoriz
 import androidx.compose.material.icons.outlined.SelectAll
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.VolumeUp
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
@@ -70,7 +76,7 @@ import java.util.Locale
 
 // Shared dialog state enum (top-level so the top-level BigBangOverlayContent Composable can reference it)
 private enum class DialogMode {
-    NONE, EDIT, TAG_CLOUD, EXPORT
+    NONE, EDIT, TAG_CLOUD, EXPORT, EXTRACT, AI_MENU, AI_RESULT
 }
 
 /**
@@ -96,6 +102,14 @@ class TextSegmentationActivity : ComponentActivity() {
     private var dialogMode by mutableStateOf(DialogMode.NONE)
     private var editDraft by mutableStateOf("")
     private var tagCloudItems by mutableStateOf<List<Map.Entry<String, Int>>>(emptyList())
+
+    // Key-information extraction results (phone / email / url / code / tracking / money / date).
+    private var extractItems by mutableStateOf<List<Pair<String, List<String>>>>(emptyList())
+    // AI quick-action state.
+    private var aiLoading by mutableStateOf(false)
+    private var aiResult by mutableStateOf("")
+    private var aiTitle by mutableStateOf("")
+    private var aiCustomInput by mutableStateOf("")
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -131,13 +145,23 @@ class TextSegmentationActivity : ComponentActivity() {
                 onEditMode = { showEditDialog() },
                 onSelectAll = { selectAll() },
                 onShareAll = { shareAll() },
-                onMore = { showTagCloud() },
-                onExport = { exportContent() },
+                onMore = { showAiMenu() },
+                onExport = { extractInfo() },
                 onSpeak = { speakSelected() },
                 isSpeaking = isSpeaking,
                 dialogMode = dialogMode,
                 editDraft = editDraft,
                 tagCloudItems = tagCloudItems,
+                extractItems = extractItems,
+                aiLoading = aiLoading,
+                aiResult = aiResult,
+                aiTitle = aiTitle,
+                onCopyText = { value ->
+                    val clipboard = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                    clipboard.setPrimaryClip(android.content.ClipData.newPlainText("copied", value))
+                    Toast.makeText(this, "已复制", Toast.LENGTH_SHORT).show()
+                },
+                onAiPick = { which, custom -> runAiAction(which, custom) },
                 onDialogEditConfirm = { newText ->
                     if (newText.isNotBlank()) {
                         currentText = ""
@@ -410,6 +434,90 @@ class TextSegmentationActivity : ComponentActivity() {
         dialogMode = DialogMode.TAG_CLOUD
     }
 
+    /** Returns the selected chip text, or the whole text when nothing is selected. */
+    private fun selectedOrFullText(): String {
+        val page = boomChipPage
+        return if (page != null && page.hasSelection()) page.getSelectedText() else currentText
+    }
+
+    /** Bottom-left button: extract key info (phone/email/url/code/tracking/money/date). */
+    private fun extractInfo() {
+        val text = selectedOrFullText()
+        if (text.isBlank()) {
+            Toast.makeText(this, "没有可提取的文本", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val categories = InfoExtractor.extract(text)
+        extractItems = categories.map { it.label to it.values.toList() }
+        dialogMode = DialogMode.EXTRACT
+    }
+
+    /** Top-right "more" button: open the AI quick-action menu. */
+    private fun showAiMenu() {
+        val text = selectedOrFullText()
+        if (text.isBlank()) {
+            Toast.makeText(this, "没有可处理的文本", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val settings = TranslationSettings.readLocal(this)
+        if (settings.apiKey.isBlank() || settings.baseUrl.isBlank()) {
+            Toast.makeText(this, "请先在设置中配置 AI 接口", Toast.LENGTH_LONG).show()
+            return
+        }
+        aiCustomInput = ""
+        dialogMode = DialogMode.AI_MENU
+    }
+
+    /**
+     * Executes an AI quick action. which: 0 summary, 1 key points, 2 explain,
+     * 3 translate to English, 4 custom (uses [aiCustomInput] as the instruction).
+     */
+    private fun runAiAction(which: Int, customInput: String) {
+        val text = selectedOrFullText()
+        if (text.isBlank()) {
+            Toast.makeText(this, "没有可处理的文本", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val (title, prompt) = when (which) {
+            0 -> "总结摘要" to "你是中文助手。请用简洁的中文概括下面这段文本的核心内容，只输出摘要本身，不要解释。"
+            1 -> "提取要点" to "你是中文助手。请把下面这段文本的关键要点提炼成分条列表（每条以「- 」开头），只输出要点，不要多余说明。"
+            2 -> "通俗解释" to "你是中文助手。请用通俗易懂的中文解释下面这段文本的含义，面向没有背景知识的读者，只输出解释内容。"
+            3 -> "翻译英文" to "You are a professional translator. Translate the user's text into natural English. Return only the translation, without explanations or quotes."
+            else -> {
+                val custom = customInput.trim()
+                if (custom.isEmpty()) {
+                    Toast.makeText(this, "请输入自定义指令", Toast.LENGTH_SHORT).show()
+                    return
+                }
+                "自定义" to custom
+            }
+        }
+        val settings = TranslationSettings.readLocal(this)
+        aiTitle = title
+        aiResult = ""
+        aiLoading = true
+        dialogMode = DialogMode.AI_RESULT
+        Thread({
+            try {
+                val result = TextTranslationEngine.chat(this, prompt, text, settings)
+                runOnUiThread {
+                    if (!isFinishing && dialogMode == DialogMode.AI_RESULT) {
+                        aiResult = result.ifBlank { "（AI 未返回内容）" }
+                        aiLoading = false
+                    }
+                }
+            } catch (error: Throwable) {
+                DragShareLog.w(TAG, "AI quick action failed", error)
+                runOnUiThread {
+                    if (!isFinishing && dialogMode == DialogMode.AI_RESULT) {
+                        aiResult = "请求失败：${error.message ?: "网络异常"}"
+                        aiLoading = false
+                    }
+                }
+            }
+        }, "drag-share-ai-action").start()
+    }
+
     private fun exportContent() {
         val text = currentText
         if (text.isBlank()) {
@@ -568,6 +676,12 @@ private fun BigBangOverlayContent(
     dialogMode: DialogMode,
     editDraft: String,
     tagCloudItems: List<Map.Entry<String, Int>>,
+    extractItems: List<Pair<String, List<String>>>,
+    aiLoading: Boolean,
+    aiResult: String,
+    aiTitle: String,
+    onCopyText: (String) -> Unit,
+    onAiPick: (Int, String) -> Unit,
     onDialogEditConfirm: (String) -> Unit,
     onDialogTagCloudCopy: () -> Unit,
     onDialogExportPick: (Int) -> Unit,
@@ -689,7 +803,7 @@ private fun BigBangOverlayContent(
                                 contentDescription = stringResource(R.string.bigbang_action_share_all),
                             )
                             OverlayIconAction(
-                                imageVector = Icons.Outlined.MoreHoriz,
+                                imageVector = Icons.Outlined.AutoAwesome,
                                 tint = if (dark) Color(0xFFD7DEE7) else Color(0xFF6F6962),
                                 onClick = onMore,
                                 contentDescription = stringResource(R.string.bigbang_action_more),
@@ -705,7 +819,7 @@ private fun BigBangOverlayContent(
                         rightInset = panelMetrics.rightSystemInset,
                         leading = {
                             OverlayIconAction(
-                                imageVector = Icons.Outlined.DocumentScanner,
+                                imageVector = Icons.Outlined.FilterList,
                                 tint = if (dark) Color(0xFFF2F5F8) else Color(0xFF6C6760),
                                 enabled = true,
                                 onClick = onExport,
@@ -752,6 +866,7 @@ private fun BigBangOverlayContent(
         val dialogTitle = if (dark) Color(0xFFF2F5F8) else Color(0xFF6C6760)
         val dialogAccent = if (dark) Color(0xFFF2F5F8) else Color(0xFF6C6760)
         var editInput by remember { mutableStateOf(editDraft) }
+        var customInput by remember(dialogMode) { mutableStateOf("") }
         AlertDialog(
             onDismissRequest = onDialogDismiss,
             containerColor = dialogBg,
@@ -762,6 +877,9 @@ private fun BigBangOverlayContent(
                         DialogMode.EDIT -> "编辑原文"
                         DialogMode.TAG_CLOUD -> "高频词标签"
                         DialogMode.EXPORT -> "导出为"
+                        DialogMode.EXTRACT -> "关键信息提取"
+                        DialogMode.AI_MENU -> "AI 快捷指令"
+                        DialogMode.AI_RESULT -> aiTitle
                         else -> ""
                     },
                     color = dialogTitle,
@@ -814,6 +932,95 @@ private fun BigBangOverlayContent(
                             }
                         }
                     }
+                    DialogMode.EXTRACT -> {
+                        if (extractItems.isEmpty()) {
+                            Text(
+                                text = "未识别到手机号、邮箱、网址、验证码、单号、金额或日期等信息。",
+                                color = dialogText,
+                                fontSize = 14.sp,
+                            )
+                        } else {
+                            LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 360.dp)) {
+                                extractItems.forEach { (label, values) ->
+                                    item {
+                                        Text(
+                                            text = label,
+                                            color = dialogAccent,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            modifier = Modifier.padding(top = 10.dp, bottom = 2.dp),
+                                        )
+                                    }
+                                    items(values.size) { idx ->
+                                        val v = values[idx]
+                                        Text(
+                                            text = v,
+                                            color = dialogText,
+                                            fontSize = 15.sp,
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable { onCopyText(v) }
+                                                .padding(vertical = 8.dp),
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    DialogMode.AI_MENU -> {
+                        val actions = listOf("总结摘要", "提取要点", "通俗解释", "翻译英文")
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            actions.forEachIndexed { index, label ->
+                                Text(
+                                    text = label,
+                                    color = dialogText,
+                                    fontSize = 15.sp,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { onAiPick(index, "") }
+                                        .padding(vertical = 12.dp),
+                                )
+                            }
+                            OutlinedTextField(
+                                value = customInput,
+                                onValueChange = { customInput = it },
+                                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                                placeholder = { Text("自定义指令…", color = dialogText.copy(alpha = 0.5f)) },
+                                textStyle = androidx.compose.ui.text.TextStyle(color = dialogText, fontSize = 15.sp),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = dialogAccent,
+                                    unfocusedBorderColor = dialogText.copy(alpha = 0.5f),
+                                    cursorColor = dialogAccent,
+                                ),
+                            )
+                        }
+                    }
+                    DialogMode.AI_RESULT -> {
+                        if (aiLoading) {
+                            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(20.dp),
+                                    strokeWidth = 2.dp,
+                                    color = dialogAccent,
+                                )
+                                Text(
+                                    text = "  正在请求 AI…",
+                                    color = dialogText,
+                                    fontSize = 15.sp,
+                                )
+                            }
+                        } else {
+                            LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 380.dp)) {
+                                item {
+                                    Text(
+                                        text = aiResult,
+                                        color = dialogText,
+                                        fontSize = 15.sp,
+                                    )
+                                }
+                            }
+                        }
+                    }
                     else -> {}
                 }
             },
@@ -829,6 +1036,18 @@ private fun BigBangOverlayContent(
                     DialogMode.TAG_CLOUD -> {
                         TextButton(onClick = onDialogTagCloudCopy) {
                             Text("复制标签列表", color = dialogAccent)
+                        }
+                    }
+                    DialogMode.AI_MENU -> {
+                        TextButton(onClick = { onAiPick(4, customInput) }) {
+                            Text("执行", color = dialogAccent)
+                        }
+                    }
+                    DialogMode.AI_RESULT -> {
+                        if (!aiLoading) {
+                            TextButton(onClick = { onCopyText(aiResult) }) {
+                                Text("复制结果", color = dialogAccent)
+                            }
                         }
                     }
                     else -> {}
