@@ -108,9 +108,8 @@ public final class DragShareAccessibilityService extends AccessibilityService {
         registerSettingsObserver();
         registerScreenReceiver();
         applyMode();
-        if (DragShareSettings.readLocal(this).imageOcrEnabled) {
-            ImageOcrEngine.warmUp(this);
-        }
+        // [Memory optimization] OCR engine is now lazily initialized on first use
+        // instead of warming up at service startup to save ~60-80MB RAM.
     }
 
     @Override
@@ -146,8 +145,21 @@ public final class DragShareAccessibilityService extends AccessibilityService {
         unregisterSettingsObserver();
         unregisterScreenReceiver();
         stopRuntime();
+        ImageOcrEngine.releaseRecognizer();
         AccessibilityRuntimeStatus.setConnected(false);
         super.onDestroy();
+    }
+
+    @Override
+    public void onTrimMemory(int level) {
+        super.onTrimMemory(level);
+        // When the module process is pushed to the background (or the system is under
+        // memory pressure), release the ML Kit recognizer and its native model so the
+        // persistent service does not hold ~60-80MB idle. It is lazily re-created on the
+        // next OCR request, so functionality is unaffected.
+        if (level >= TRIM_MEMORY_BACKGROUND) {
+            ImageOcrEngine.releaseRecognizer();
+        }
     }
 
     boolean isAccessibilityCaptureEnabled() {

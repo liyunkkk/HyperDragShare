@@ -219,6 +219,23 @@ public class BoomChipPage {
         mBoomConent.removeAllViews();
     }
 
+    /**
+     * Fully releases the chip hierarchy and cached bitmaps so the Activity can be
+     * garbage-collected after it finishes. Long OCR/web text can inflate thousands of
+     * chip Views; without this they stayed resident in the persistent module process.
+     * Safe to call multiple times.
+     */
+    public void release() {
+        if (mBoomActionHandler != null) {
+            mBoomActionHandler.clearSelectionStateForRelayout();
+        }
+        if (mBoomConent != null) {
+            mBoomConent.removeAllViews();
+        }
+        mSavedData = null;
+        mOnAdjacentRequestListener = null;
+    }
+
     public void resetChips() {
         for (int i = 0; i < mLayout.getRowCount(); ++i) {
             final LinearLayout row = getChipRow(i);
@@ -280,6 +297,19 @@ public class BoomChipPage {
 
     public String getOriginalText() {
         return mLayout.getOriText();
+    }
+
+    /** @return true if the user has selected one or more word chips. */
+    public boolean hasSelection() {
+        return mBoomActionHandler != null && mBoomActionHandler.hasSelection();
+    }
+
+    /** @return text of the selected word chips, or the full text when everything is selected. */
+    public String getSelectedText() {
+        if (mBoomActionHandler != null) {
+            return mBoomActionHandler.getSelectedText();
+        }
+        return getOriginalText();
     }
 
     public void selectAll() {
@@ -446,14 +476,39 @@ public class BoomChipPage {
     }
 
     private void initChips(boolean animate) {
+        boolean prevWasGap = false;
+        final boolean looseText = mLayout.isLooseText();
+        // Base paragraph gap percentage (25%), tightened when the source text itself
+        // has oversized line spacing (e.g. OCR/web text where nearly every line is
+        // separated by a blank line). Keeps real paragraph structure while stopping
+        // sparse text from being stretched across the whole page.
+        final int paragraphGapPercent = looseText
+                ? 12
+                : BigBangSettings.get(mActivity).getGapRowHeightPercent();
+        final int rowHeight = mActivity.getResources().getDimensionPixelOffset(R.dimen.chip_row_height);
+        // A single soft wrap ('\n') only gets a very small breathing gap so consecutive
+        // lines stay visually tight; real paragraph breaks ('\n\n'+) keep the larger gap.
+        final int softWrapGap = Math.round(
+                mActivity.getResources().getDisplayMetrics().density * 4f);
         for (int i = 0; i < mLayout.getRowCount(); ++i) {
             final int start = mLayout.getRowStart(i);
             final int count = mLayout.getColumnCount(i);
             if (mLayout.isGapRow(i)) {
-                final int rowHeight = mActivity.getResources().getDimensionPixelOffset(R.dimen.chip_row_height);
-                final int gapHeight = Math.round(
-                        rowHeight * BigBangSettings.get(mActivity).getGapRowHeightPercent() / 100f
-                );
+                // Collapse consecutive blank rows into a single compact spacer so that
+                // unstructured / OCR text with large gaps cannot push real words out of view.
+                if (prevWasGap) {
+                    continue;
+                }
+                prevWasGap = true;
+                final int newlines = mLayout.getGapNewlines(i);
+                final int gapHeight;
+                if (newlines <= 1) {
+                    // Single soft wrap: keep a small, fixed breathing space.
+                    gapHeight = softWrapGap;
+                } else {
+                    // Real paragraph break: proportional gap (adaptively tightened).
+                    gapHeight = Math.round(rowHeight * paragraphGapPercent / 100f);
+                }
                 View spacer = new View(mActivity);
                 spacer.setLayoutParams(new LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT,
@@ -474,6 +529,7 @@ public class BoomChipPage {
                 row.addView(chipView);
             }
             mBoomConent.addView(row);
+            prevWasGap = false;
         }
         mBoomConent.requestLayout();
         mScroller.post(new Runnable() {

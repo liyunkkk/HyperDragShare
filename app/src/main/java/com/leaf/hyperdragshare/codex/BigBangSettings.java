@@ -16,7 +16,8 @@ final class BigBangSettings {
     }
 
     int getGapRowHeightPercent() {
-        return 100;
+        // [Layout optimization] Reduced from 40% to 25% for tighter paragraph spacing.
+        return 25;
     }
 
     int getWebSearchType() {

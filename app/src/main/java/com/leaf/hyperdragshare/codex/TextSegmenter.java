@@ -64,6 +64,33 @@ final class TextSegmenter {
         return buildSegments(text, nativeCut(text));
     }
 
+    /**
+     * Releases the resident cppjieba dictionary Trie + HMM model (~55MB native heap).
+     * Safe to call from any thread; the native side takes the same lock as segmentation.
+     * The tokenizer is transparently re-initialized on the next {@link #segment} call,
+     * so functionality is unchanged &mdash; only the first segmentation afterwards pays
+     * the one-time reload cost (~0.2-0.3s).
+     */
+    static void release() {
+        TextSegmenter local = instance;
+        if (local != null) {
+            local.releaseNativeDictionary();
+        }
+    }
+
+    private synchronized void releaseNativeDictionary() {
+        if (!nativeLibraryLoaded || !initialized) {
+            return;
+        }
+        try {
+            nativeRelease();
+        } catch (Throwable error) {
+            DragShareLog.w(TAG, "tokenizer native release failed", error);
+        }
+        // Force lazy re-init on the next segment() call.
+        initialized = false;
+    }
+
     private void preloadAsync() {
         synchronized (this) {
             if (initialized || preloading) {
@@ -236,4 +263,5 @@ final class TextSegmenter {
 
     private static native boolean nativeInit(String dictionaryDirectory);
     private static native int[] nativeCut(String text);
+    private static native void nativeRelease();
 }

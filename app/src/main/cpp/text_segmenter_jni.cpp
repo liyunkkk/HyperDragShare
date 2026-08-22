@@ -1,6 +1,10 @@
 #include <jni.h>
+#if __has_include(<android/log.h>)
 #include <android/log.h>
-
+#else
+#define ANDROID_LOG_ERROR 6
+#define __android_log_print(level, tag, fmt, ...) ((void)0)
+#endif
 #include <memory>
 #include <mutex>
 #include <string>
@@ -118,9 +122,20 @@ jintArray NativeCut(JNIEnv* env, jclass, jstring text) {
     return result;
 }
 
+void NativeRelease(JNIEnv*, jclass) {
+    // Free the ~55MB dictionary Trie + HMM model that cppjieba keeps resident.
+    // Guarded by the same mutex as init/cut so a concurrent segmentation cannot
+    // observe a half-torn-down segment. Java re-triggers init lazily on next use.
+    std::lock_guard<std::mutex> lock(gMutex);
+    gMixSegment.reset();
+    gHmmModel.reset();
+    gDictTrie.reset();
+}
+
 JNINativeMethod kMethods[] = {
         {"nativeInit", "(Ljava/lang/String;)Z", reinterpret_cast<void*>(NativeInit)},
         {"nativeCut", "(Ljava/lang/String;)[I", reinterpret_cast<void*>(NativeCut)},
+        {"nativeRelease", "()V", reinterpret_cast<void*>(NativeRelease)},
 };
 
 } // namespace
