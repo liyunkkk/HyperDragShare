@@ -19,6 +19,9 @@ public final class DragShareApplication extends Application {
         // the next OCR request, so no functionality is lost.
         if (level >= TRIM_MEMORY_BACKGROUND) {
             ImageOcrEngine.releaseRecognizer();
+            // Drop the resident cppjieba dictionary Trie (~55MB native heap) when the
+            // process goes to the background. Lazily re-initialized on the next segmentation.
+            TextSegmenter.release();
         }
     }
 }
